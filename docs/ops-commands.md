@@ -150,7 +150,8 @@ ORDER BY run_date DESC, portal_type;
 ### Sink 선택 (.env)
 
 ```bash
-# 파일 저장 (기본) — data/{날짜}/{포털}.jsonl
+# 파일 저장 (기본) — data/{날짜}/{포털}-{worker_id}.jsonl
+# worker_id 는 --worker-id 인수 또는 WORKER_ID 환경변수 (기본값: worker-1)
 SINK_TYPE=file
 
 # Solr 저장
@@ -202,12 +203,13 @@ ORDER BY started_at DESC;
 ```
 data/
   {YYYY-MM-DD}/
-    NAVER.jsonl
-    DAUM.jsonl
-    GOOGLE.jsonl
+    NAVER-{worker_id}.jsonl
+    DAUM-{worker_id}.jsonl
+    GOOGLE-{worker_id}.jsonl
 ```
 
-각 줄은 JSON 오브젝트 (Article 필드 전체 포함).
+각 줄은 JSON 오브젝트 (Article 필드 전체 포함).  
+extractor 를 여러 대 운영하면 worker-id 별로 파일이 분리된다.
 
 ---
 

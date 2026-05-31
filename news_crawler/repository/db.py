@@ -58,10 +58,3 @@ def db_context():
         if tunnel and tunnel.is_active:
             tunnel.stop()
 
-
-def get_engine() -> Engine:
-    """
-    장기 실행 워커용: 터널/엔진을 호출자가 직접 관리.
-    워커 시작 시 open_tunnel() / create_engine() 을 직접 호출할 때 사용.
-    """
-    raise NotImplementedError("장기 실행 워커는 db_context()를 사용하거나 직접 터널을 열 것")

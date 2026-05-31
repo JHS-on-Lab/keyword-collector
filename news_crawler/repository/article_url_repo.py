@@ -66,18 +66,18 @@ class ArticleUrlRepo:
             return 0, 0
 
         now = datetime.now(KST)
-        rows = [
-            {
-                "url":        normalize(raw),
-                "hash":       url_hash(normalize(raw)),
-                "host":       urlparse(normalize(raw)).netloc,
+        rows = []
+        for raw in raw_urls:
+            norm = normalize(raw)
+            rows.append({
+                "url":        norm,
+                "hash":       url_hash(norm),
+                "host":       urlparse(norm).netloc,
                 "kid":        keyword_id,
                 "portal":     portal_type,
                 "cdate":      now.date(),
                 "created_at": now,
-            }
-            for raw in raw_urls
-        ]
+            })
 
         with self._engine.begin() as conn:
             result = conn.execute(_INSERT_SQL, rows)

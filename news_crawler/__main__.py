@@ -48,6 +48,7 @@ def main() -> None:
     config.validate()
 
     worker_id = args.worker_id or config.WORKER_ID
+    config.WORKER_ID = worker_id  # FileSink 등 config를 직접 읽는 컴포넌트에 반영
     logger = logging_setup.setup(args.role, worker_id=worker_id)
 
     signal.signal(signal.SIGTERM, _handle_signal)

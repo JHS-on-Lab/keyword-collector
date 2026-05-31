@@ -12,7 +12,7 @@
 | `crawl_delay_ms` | 이 도메인에 요청 사이 최소 대기 시간 (ms) | `DEFAULT_CRAWL_DELAY_MS` (.env, 기본 1000ms) |
 | `render_mode` | 본문 추출 방식 | `static` (정적 HTTP) |
 | `cooldown_until` | 차단 해제 시각. 이 시각 전까지 요청 안 함 | NULL (차단 없음) |
-| `rules_json` | 도메인 전용 CSS/XPath 추출 규칙 (Phase C 이후 사용) | NULL (라이브러리 자동 추출) |
+| `rules_json` | 도메인 전용 CSS/XPath 추출 규칙 | NULL (라이브러리 자동 추출) |
 
 ---
 
@@ -65,8 +65,8 @@ GROUP BY host ORDER BY cnt DESC;
 python scripts/add_domain_rule.py --host www.example.com --render headless
 ```
 
-> **주의**: `headless` 모드는 Phase C 이후 지원된다. 현재는 설정해도 동작하지 않으며
-> Playwright 구현(`fetch/headless.py`) 완료 후 활성화된다.
+> **주의**: headless 모드는 Playwright 브라우저 설치 후 사용 가능하다.  
+> 미설치 시 첫 headless 요청에서 오류가 발생한다: `playwright install chromium`
 
 **headless 가 필요한 징후:**
 - `last_error_code = 'PARSE_ERROR'` 또는 `BODY_TOO_SHORT'` 가 해당 도메인에서만 반복됨

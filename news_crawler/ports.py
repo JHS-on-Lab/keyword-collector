@@ -77,5 +77,5 @@ class Sink(Protocol):
     """
 
     def write(self, article: Article) -> None:
-        """기사를 저장한다. 멱등성 보장 (같은 url_hash를 다시 써도 안전)."""
+        """기사를 저장한다. SolrSink는 url_hash로 멱등 upsert, FileSink는 append."""
         ...

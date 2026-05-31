@@ -19,12 +19,12 @@
 
 from __future__ import annotations
 
-import pathlib
 import time
 import logging
 from datetime import datetime, timezone, timedelta
 
 from news_crawler import config
+from news_crawler.worker import _healthcheck
 from news_crawler.adapters import make_adapter
 from news_crawler.repository.db import db_context
 from news_crawler.repository.keyword_repo import KeywordRepo
@@ -62,10 +62,7 @@ def run_discovery_loop(portal: str, worker_id: str) -> None:
                     extra={"phase": "heartbeat", "worker_id": worker_id, "component": "dispatcher"},
                 )
                 last_heartbeat = now
-                try:
-                    pathlib.Path("/tmp/healthcheck").write_text(str(now))
-                except OSError:
-                    pass
+                _healthcheck.write()
 
             try:
                 kw = kw_repo.claim_next(portal=portal, worker_id=worker_id)
@@ -131,7 +128,7 @@ def _run_one(
 
         duration_ms = int((time.monotonic() - started_mono) * 1000)
 
-        kw_repo.complete(keyword_id, total_found, duration_ms)
+        kw_repo.complete(keyword_id)
 
         # 이번 수집 결과를 collection_log 에 한 줄로 남긴다 (나중에 SQL 로 추이 조회 가능).
         log_repo.insert_discovery(DiscoveryLog(

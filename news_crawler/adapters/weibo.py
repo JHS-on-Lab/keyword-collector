@@ -1,4 +1,4 @@
-"""웨이보 발견 어댑터 (전략 미확정) — 7단계에서 구현."""
+"""웨이보 발견 어댑터 (전략 미확정 — 구현 전 decisions/weibo-discovery.md 먼저 작성)."""
 
 from __future__ import annotations
 

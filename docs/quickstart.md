@@ -147,8 +147,8 @@ python -m news_crawler --role extraction
 # 저장된 파일 목록
 dir data\
 
-# 샘플 1건 출력 (PowerShell)
-Get-Content data\2026-05-31\NAVER.jsonl | Select-Object -First 1 | python -m json.tool
+# 샘플 1건 출력 (PowerShell) — worker-id 기본값은 worker-1
+Get-Content data\2026-05-31\NAVER-worker-1.jsonl | Select-Object -First 1 | python -m json.tool
 ```
 
 JSON 구조:

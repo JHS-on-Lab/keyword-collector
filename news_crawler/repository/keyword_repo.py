@@ -62,7 +62,7 @@ class KeywordRepo:
 
         return kw
 
-    def complete(self, keyword_id: int, url_count: int, duration_ms: int) -> None:
+    def complete(self, keyword_id: int) -> None:
         """발견 완료 후 last_discovered_at 기록. 상세 통계는 collection_log에 저장."""
         with self._engine.begin() as conn:
             conn.execute(
