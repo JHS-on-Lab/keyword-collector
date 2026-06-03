@@ -67,6 +67,7 @@ GOOGLE_DISCOVERY_MODE   = _env("GOOGLE_DISCOVERY_MODE", "search")
 NAVER_MAX_PAGES       = _env_int("NAVER_MAX_PAGES",       10)
 DAUM_MAX_PAGES        = _env_int("DAUM_MAX_PAGES",        10)
 GOOGLE_MAX_PAGES      = _env_int("GOOGLE_MAX_PAGES",       5)
+BAIDU_MAX_PAGES       = _env_int("BAIDU_MAX_PAGES",        5)
 NAVER_STOCK_MAX_PAGES = _env_int("NAVER_STOCK_MAX_PAGES",  5)
 
 # Sink
