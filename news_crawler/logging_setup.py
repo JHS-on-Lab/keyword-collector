@@ -97,6 +97,12 @@ def _configure_root(log_dir: Path) -> None:
     root = logging.getLogger()
     root.setLevel(getattr(logging, config.LOG_LEVEL.upper(), logging.INFO))
 
+    # 외부 라이브러리 내부 로그 억제 — app.log 노이즈 방지
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("selenium").setLevel(logging.WARNING)
+    logging.getLogger("undetected_chromedriver").setLevel(logging.WARNING)
+
     ctx = _ContextFilter()
 
     # app.log — INFO 이상

@@ -26,7 +26,7 @@ from news_crawler import logging_setup
 from news_crawler import config
 
 _ROLES   = ("discovery", "extraction")
-_PORTALS = ("naver", "daum", "google", "weibo", "all")
+_PORTALS = ("naver", "daum", "google", "weibo", "naver_stock", "all")
 
 
 def _parse_args() -> argparse.Namespace:

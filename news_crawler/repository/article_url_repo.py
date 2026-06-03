@@ -17,7 +17,7 @@ status 컬럼이 각 URL 의 현재 상태를 나타낸다:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from sqlalchemy import Engine, text
@@ -25,7 +25,6 @@ from sqlalchemy import Engine, text
 from news_crawler.domain_logic.url_normalizer import normalize, url_hash
 from news_crawler.types import ErrorCode
 
-KST = timezone(timedelta(hours=9))
 
 # ON DUPLICATE KEY UPDATE 는 url_hash 가 이미 있으면 아무것도 바꾸지 않는다.
 # 중복 URL 을 조용히 무시하기 위한 관용구다.
@@ -65,7 +64,7 @@ class ArticleUrlRepo:
         if not raw_urls:
             return 0, 0
 
-        now = datetime.now(KST)
+        now = datetime.now(timezone.utc)
         rows = []
         for raw in raw_urls:
             norm = normalize(raw)
@@ -89,19 +88,23 @@ class ArticleUrlRepo:
     # 추출 단계
     # ------------------------------------------------------------------
 
-    def claim_next(self, worker_id: str) -> dict | None:
+    def claim_next(self, worker_id: str, portal: str | None = None) -> dict | None:
         """처리할 URL 하나를 꺼내 잠근다.
 
         'FOR UPDATE SKIP LOCKED' 덕분에 여러 워커가 동시에 호출해도 서로 다른 행을 가져간다.
         (SKIP LOCKED = 다른 트랜잭션이 이미 잠근 행은 건너뜀)
 
+        portal: 지정하면 해당 portal_type 만 처리. None 이면 전체.
+
         반환:
           - 처리할 URL 이 있으면 → dict (id, url, host, portal_type, attempt_count, keyword)
           - 없으면 → None
         """
+        portal_filter = "AND a.portal_type = :portal" if portal else ""
+        params: dict = {"portal": portal} if portal else {}
         with self._engine.begin() as conn:
             row = conn.execute(
-                text("""
+                text(f"""
                     SELECT a.id, a.url, a.host, a.portal_type, a.keyword_id,
                            a.attempt_count, COALESCE(k.keyword, '') AS keyword
                     FROM article_url a
@@ -110,10 +113,12 @@ class ArticleUrlRepo:
                         a.status = 'discovered'
                         OR (a.status = 'failed_transient' AND a.next_retry_at <= NOW())
                     )
+                    {portal_filter}
                     ORDER BY a.priority DESC, a.id ASC
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
-                """)
+                """),
+                params,
             ).fetchone()
 
             if row is None:

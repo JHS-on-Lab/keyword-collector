@@ -33,7 +33,7 @@ class KeywordRepo:
         with self._engine.begin() as conn:
             row = conn.execute(
                 text(f"""
-                    SELECT id, keyword, portal_type, interval_seconds
+                    SELECT id, keyword, portal_type, interval_seconds, last_cursor
                     FROM keyword
                     WHERE enabled = true
                       AND (next_discover_at IS NULL OR next_discover_at <= NOW())
@@ -62,25 +62,41 @@ class KeywordRepo:
 
         return kw
 
-    def complete(self, keyword_id: int) -> None:
-        """발견 완료 후 last_discovered_at 기록. 상세 통계는 collection_log에 저장."""
+    def reschedule(self, keyword_id: int, next_at: datetime) -> None:
+        """next_discover_at 을 지정 시각으로 갱신한다. 403 재시도 등에 사용."""
         with self._engine.begin() as conn:
             conn.execute(
-                text("UPDATE keyword SET last_discovered_at = NOW() WHERE id = :kid"),
-                {"kid": keyword_id},
+                text("UPDATE keyword SET next_discover_at = :next_at WHERE id = :kid"),
+                {"next_at": next_at, "kid": keyword_id},
+            )
+
+    def set_cursor(self, keyword_id: int, cursor: str | None) -> None:
+        """last_cursor 를 갱신한다.
+        - 403 실패 시: 실패한 cursor 저장 → 재시도 시 해당 페이지부터 재개
+        - 성공 완료 시: None 으로 리셋 → 다음 수집은 첫 페이지부터
+        """
+        with self._engine.begin() as conn:
+            conn.execute(
+                text("UPDATE keyword SET last_cursor = :cursor WHERE id = :kid"),
+                {"cursor": cursor, "kid": keyword_id},
             )
 
     def list_all(self, portal: str = "ALL") -> list[dict]:
         """전체 키워드 목록 조회 (운영 확인용)."""
-        portal_filter = "" if portal.upper() == "ALL" else "WHERE portal_type = :portal"
+        portal_filter = "" if portal.upper() == "ALL" else "WHERE k.portal_type = :portal"
         with self._engine.connect() as conn:
             rows = conn.execute(
                 text(f"""
-                    SELECT id, keyword, portal_type, enabled,
-                           last_discovered_at, next_discover_at, priority
-                    FROM keyword
+                    SELECT k.id, k.keyword, k.display_name, k.portal_type,
+                           k.enabled, k.disabled_reason,
+                           k.next_discover_at, k.priority,
+                           MAX(CASE WHEN cl.error_msg IS NULL THEN cl.started_at END) AS last_discovered_at
+                    FROM keyword k
+                    LEFT JOIN collection_log cl
+                           ON cl.keyword_id = k.id AND cl.run_type = 'discovery'
                     {portal_filter}
-                    ORDER BY portal_type, keyword
+                    GROUP BY k.id
+                    ORDER BY k.portal_type, k.keyword
                 """),
                 {"portal": portal.upper()},
             ).fetchall()

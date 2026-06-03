@@ -94,14 +94,22 @@ python scripts/verify_schema.py
 수집할 검색어와 포털을 등록한다.
 
 ```bash
+# 일반 뉴스 포털
 python scripts/add_keyword.py --keyword "삼성전자" --portal NAVER
 python scripts/add_keyword.py --keyword "삼성전자" --portal DAUM
 python scripts/add_keyword.py --keyword "삼성전자" --portal GOOGLE
+
+# 네이버 증권 종목토론 — keyword 는 종목코드, --display-name 으로 종목명 지정
+python scripts/add_keyword.py --keyword "005930" --portal NAVER_STOCK --display-name "삼성전자"
+python scripts/add_keyword.py --keyword "000660" --portal NAVER_STOCK --display-name "SK하이닉스"
+
+# 다국어 키워드에 설명 라벨 추가
+python scripts/add_keyword.py --keyword "三星电子" --portal GOOGLE --display-name "삼성전자 (중문)"
 ```
 
 등록 결과 확인:
 ```sql
-SELECT id, keyword, portal_type, enabled, next_discover_at FROM keyword;
+SELECT id, keyword, display_name, portal_type, enabled, next_discover_at FROM keyword;
 ```
 
 ---
@@ -120,10 +128,19 @@ python -m news_crawler --role discovery --portal naver
 
 수집 결과 확인:
 ```sql
+-- URL 수집 현황
 SELECT status, COUNT(*) FROM article_url GROUP BY status;
+
+-- 발견 이력 (성공/실패 모두)
+SELECT k.keyword, cl.urls_found, cl.urls_inserted, cl.error_msg, cl.started_at
+FROM collection_log cl
+JOIN keyword k ON k.id = cl.keyword_id
+WHERE cl.run_type = 'discovery' AND cl.run_date = CURDATE()
+ORDER BY cl.started_at DESC LIMIT 20;
 ```
 
-`discovered` 건수가 보이면 정상.
+`article_url` 에 `discovered` 건수가 보이면 정상.  
+`collection_log.error_msg IS NOT NULL` 이면 해당 키워드 수집 중 오류 발생.
 
 ---
 
@@ -186,5 +203,5 @@ python scripts/requeue_failed.py --show
 |------|-----------|
 | DB 연결 실패 | `.env` RDS 정보, SSH 키 경로, EC2 상태 |
 | 발견 URL 0건 | `preview_adapter.py` 로 어댑터 직접 테스트, 셀렉터 파손 가능 |
-| 추출 PARSE_ERROR 반복 | JS 렌더링 필요 사이트. `add_domain_rule.py --render headless` 고려 |
+| 추출 PARSE_ERROR 반복 | JS 렌더링 필요 사이트. `add_domain_rule.py --render headless` 또는 `--render headless_with_iframe` 고려 |
 | `extracting` 상태 URL 쌓임 | Reaper 가 5분 후 자동 회수. 급하면 `ops-commands.md` 수동 회수 SQL 실행 |

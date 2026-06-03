@@ -72,7 +72,20 @@ status 흐름:
 
 ### `collection_log` — 실행 이력
 
-워커가 한 번 실행될 때마다 1행씩 기록된다. 수집량 추이를 SQL로 확인할 수 있다.
+워커가 한 번 실행될 때마다 1행씩 기록된다. `run_type` 에 따라 쓰이는 컬럼이 다르다.
+
+```
+run_type=discovery  : keyword_id, urls_found, urls_inserted, urls_skipped, error_msg
+run_type=extraction : urls_attempted, urls_success, urls_failed
+```
+
+`error_msg IS NOT NULL` 이면 해당 런이 예외(403 등)로 중단됐음을 의미한다.  
+`keyword.last_discovered_at` 은 삭제됐고, 마지막 성공 수집 시각은 이 테이블에서 조회한다:
+
+```sql
+SELECT MAX(started_at) FROM collection_log
+WHERE keyword_id = :kid AND run_type = 'discovery' AND error_msg IS NULL;
+```
 
 ---
 
@@ -84,7 +97,8 @@ news_crawler/
 ├── adapters/          ← 포털별 URL 수집 (HTTP 스크랩)
 │   ├── naver.py         (sds-comps-base-layout 셀렉터)
 │   ├── daum.py          (v.daum.net/v/ URL 패턴)
-│   ├── google.py        (Google News RSS 피드)
+│   ├── google.py        (undetected-chromedriver, search/rss 모드)
+│   ├── naver_stock.py   (네이버 증권 종목토론, 종목코드 키워드)
 │   └── weibo.py         (전략 미확정 — 미구현)
 │
 ├── scheduling/        ← 발견 워커 루프
@@ -139,6 +153,7 @@ news_crawler/
 | 기능 | 상태 |
 |------|------|
 | discovery (naver / daum / google) | 완료 |
+| discovery (naver_stock — 네이버 증권 종목토론) | 완료 — 종목코드를 keyword 로 등록 |
 | extraction (FileSink / SolrSink) | 완료 |
 | headless 렌더링 (Playwright) | 완료 — `domain.render_mode=headless` 설정 필요 |
 | 도메인 규칙 엔진 (CSS/XPath, TTL 캐시) | 완료 |
@@ -165,6 +180,117 @@ news_crawler/
 
 ---
 
+## 기술 스택
+
+컴포넌트별로 사용하는 라이브러리와 그 이유를 정리한다.
+
+### 어댑터별 fetch 전략 한눈에 보기
+
+어댑터는 두 단계에서 HTTP를 사용한다. **Discovery**(URL 목록 수집)와 **Extraction**(기사 본문 렌더링)이 독립적이며 각각 다른 전략을 쓴다.
+
+```
+포털          Discovery fetch          Extraction fetch
+─────────     ──────────────────────   ──────────────────────────────────────
+NAVER         httpx (정적 HTTP)        httpx (정적, domain 기본값)
+DAUM          httpx (정적 HTTP)        httpx (정적, domain 기본값)
+GOOGLE        undetected-chromedriver  httpx (정적, 언론사마다 다를 수 있음)
+NAVER_STOCK   httpx (정적 HTTP)        Playwright headless_with_iframe
+                                        └─ finance.naver.com 에 domain 규칙 등록
+WEIBO         미구현                   미구현
+```
+
+**Discovery fetch** — 각 어댑터에 고정 내장. 코드에서 직접 선택.
+
+**Extraction fetch** — `domain` 테이블의 `render_mode` 로 도메인별 동적 결정.
+도메인 행이 없으면 `static`(httpx) 이 기본값이다.
+
+```bash
+# 특정 도메인의 현재 fetch 전략 조회
+.venv\Scripts\python.exe scripts\add_domain_rule.py --host finance.naver.com --show
+
+# 전체 도메인 현황 (render_mode 포함)
+SELECT host, render_mode, rules_enabled FROM domain ORDER BY host;
+```
+
+---
+
+### Discovery (URL 수집)
+
+| 포털 | 방식 | 라이브러리 | 엔드포인트 |
+|------|------|-----------|-----------|
+| NAVER | 정적 HTTP | **httpx** | `search.naver.com/search.naver?start=N` |
+| DAUM | 정적 HTTP | **httpx** | `search.daum.net/search?w=news&p=N` |
+| GOOGLE | 실제 브라우저 | **undetected-chromedriver** + Selenium | `google.com/search?tbm=nws` (search 모드) |
+| NAVER_STOCK | 정적 HTTP | **httpx** | `finance.naver.com/item/board.naver?code={code}&page=N` |
+
+**Google 특이사항**: `GOOGLE_DISCOVERY_MODE` 환경변수로 두 가지 모드 전환 가능
+- `search` (기본) — `google.com/search?tbm=nws` 직접 스크랩, undetected-chromedriver 필요
+- `rss` — `news.google.com/rss` 를 httpx로 가져오고, CBMi URL 변환에만 Chrome 사용
+
+---
+
+### Extraction (본문 추출)
+
+#### Fetch 단계 — HTML 가져오기
+
+| render_mode | 라이브러리 | 사용 조건 |
+|-------------|-----------|---------|
+| `static` (기본) | **httpx** | 정적 HTML 사이트 |
+| `headless` | **Playwright** (Chromium) | JS 렌더링 필요 사이트 (SPA 등) |
+| `headless_with_iframe` | **Playwright** (Chromium) | 본문이 cross-origin iframe 안에 있는 경우 (예: 네이버 증권 종목토론) |
+
+`domain` 테이블의 `render_mode` 컬럼으로 도메인별 설정. 미설정 시 `static`.
+
+`headless_with_iframe` 동작: 모든 iframe HTML을 꺼내 외부 문서 `</body>` 직전에 `<div id="frame_{name}">` 으로 주입 → 일반 CSS 셀렉터로 iframe 내부에 접근 가능.
+
+#### Extract 단계 — 제목·본문 추출
+
+우선순위대로 시도:
+
+1. **RuleEngine** — `domain.rules_json` 에 CSS/XPath 규칙이 있으면 먼저 시도
+   - CSS: **selectolax** (C 기반 HTML 파서, 빠름)
+   - XPath: **lxml**
+   - 규칙 없거나 실패 시 LibraryChain 으로 폴백
+
+2. **LibraryChain** — 범용 라이브러리 체인
+   - **trafilatura** — 뉴스 본문 특화 추출기 (1순위)
+   - **readability-lxml** — 범용 가독성 추출기 (폴백)
+
+---
+
+### 공통 인프라
+
+| 역할 | 라이브러리 | 비고 |
+|------|-----------|------|
+| HTTP 클라이언트 | **httpx** | 동기, 리다이렉트 자동 추적, 공통 User-Agent 헤더 |
+| DB ORM / 연결 | **SQLAlchemy Core** + **PyMySQL** | ORM 매핑 없이 Core(텍스트 쿼리)만 사용. 경량. |
+| DB 마이그레이션 | **Alembic** | `migrations/versions/` 에 버전별 파일 관리 |
+| SSH 터널 | **sshtunnel** + **paramiko** | RDS 접근 시 bastion 경유. `.env` 의 `SSH_*` 설정 |
+| Rate Limiter | 자체 구현 | `domain.crawl_delay_ms` 우선, 없으면 전역 기본값. 메모리 내 host별 마지막 요청 시각 추적 |
+| 로깅 | Python 표준 `logging` | `app.log` (INFO+) / `error.log` (WARNING+) |
+
+---
+
+### 왜 chromedriver 와 Playwright 를 함께 쓰나
+
+두 라이브러리는 역할이 다르다.
+
+```
+Discovery (Google)       Extraction (headless 도메인)
+─────────────────        ──────────────────────────
+undetected-chromedriver  Playwright (Chromium)
++ Selenium               + sync API
+
+목적: 봇 감지 우회         목적: iframe 주입 등 세밀한 제어
+headless=False 필수       headless=True (봇 감지 불필요)
+페이지 수십 개 탐색        단일 URL 렌더링 후 종료
+```
+
+Google 검색은 headless 브라우저를 즉시 차단하므로 `undetected-chromedriver` 가 필수다.  
+반면 네이버 증권처럼 iframe이 복잡한 페이지는 Playwright의 `page.frames` API가 더 적합하다.
+
+---
+
 ## 관련 문서
 
 | 주제 | 문서 |
@@ -174,3 +300,6 @@ news_crawler/
 | 도메인 규칙 설정 | [domain-rules-guide.md](domain-rules-guide.md) |
 | 컨테이너 배포 | [deployment.md](deployment.md) |
 | 전체 설계 명세 | [news-crawler-design.md](news-crawler-design.md) |
+| 네이버·다음 발견 전략 (403 재시도 포함) | [decisions/naver-discovery-strategy.md](decisions/naver-discovery-strategy.md) |
+| 네이버 증권 종목토론 발견 | [decisions/naver-stock-discovery.md](decisions/naver-stock-discovery.md) |
+| Google 발견 전략 | [decisions/google-discovery.md](decisions/google-discovery.md) |

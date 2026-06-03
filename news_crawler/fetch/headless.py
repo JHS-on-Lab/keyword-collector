@@ -1,24 +1,26 @@
 """
 Playwright 기반 headless 브라우저 Fetcher.
 
-JS 렌더링이 필요한 페이지(SPA, 로딩 후 콘텐츠 표시 등)에 사용한다.
-domain.render_mode = 'headless' 인 호스트에서 HttpFetcher 대신 호출된다.
+render_mode 에 따라 동작이 다르다:
+  headless             — 기본. page.content() 반환.
+  headless_with_iframe — 로드된 iframe 내용을 외부 HTML 에 주입해 반환.
+                         iframe 안의 콘텐츠를 domain rules 로 추출해야 할 때 사용.
+                         (예: finance.naver.com 종목토론)
 
-사용하려면 Playwright 를 설치해야 한다:
+사용하려면:
   pip install playwright
   playwright install chromium
-
-주의사항:
-  - HttpFetcher 보다 느리고 리소스를 많이 쓴다. headless 가 꼭 필요한 도메인에만 설정할 것.
-  - 브라우저를 매 요청마다 새로 띄우면 비효율적이므로 인스턴스를 재사용한다.
-  - 사용 후 반드시 close() 를 호출해야 한다 (혹은 컨텍스트 매니저 사용).
 """
 
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 from news_crawler.types import FetchResult, RenderMode
+
+if TYPE_CHECKING:
+    from news_crawler.fetch.http_client import HttpFetcher
 
 
 class HeadlessFetcher:
@@ -30,7 +32,6 @@ class HeadlessFetcher:
         self._browser    = None
 
     def _ensure_browser(self) -> None:
-        """처음 호출 시 브라우저를 실행한다 (lazy init)."""
         if self._browser is not None:
             return
         from playwright.sync_api import sync_playwright
@@ -38,15 +39,23 @@ class HeadlessFetcher:
         self._browser = self._playwright.chromium.launch(headless=True)
 
     def fetch(self, url: str, *, render: RenderMode = RenderMode.HEADLESS) -> FetchResult:
-        """URL 을 브라우저로 열어 렌더링된 HTML 을 반환한다."""
         self._ensure_browser()
+
+        with_iframe = (render == RenderMode.HEADLESS_IFRAME)
+        # networkidle 은 광고/추적 스크립트가 많은 페이지에서 타임아웃 위험.
+        # load 이벤트는 메인 문서와 iframe 리소스가 모두 로드된 시점을 보장.
+        wait_until  = "load" if with_iframe else "domcontentloaded"
 
         start = time.monotonic()
         page  = self._browser.new_page()
         try:
-            response = page.goto(url, timeout=self._timeout_ms, wait_until="domcontentloaded")
+            response = page.goto(url, timeout=self._timeout_ms, wait_until=wait_until)
             html     = page.content()
             status   = response.status if response else 200
+
+            if with_iframe:
+                _wait_for_frames(page, timeout_ms=self._timeout_ms)
+                html = _inject_frames(page, html)
         finally:
             page.close()
 
@@ -55,12 +64,11 @@ class HeadlessFetcher:
             url=url,
             html=html,
             status_code=status,
-            render_mode=RenderMode.HEADLESS,
+            render_mode=render,
             elapsed_ms=elapsed_ms,
         )
 
     def close(self) -> None:
-        """브라우저와 Playwright 를 정상 종료한다."""
         if self._browser:
             self._browser.close()
             self._browser = None
@@ -73,3 +81,49 @@ class HeadlessFetcher:
 
     def __exit__(self, *_) -> None:
         self.close()
+
+
+def fetch_by_render_mode(
+    url: str,
+    render_mode: str,
+    http_fetcher: "HttpFetcher",
+    headless_fetcher: "HeadlessFetcher",
+) -> FetchResult:
+    """render_mode 문자열에 따라 적절한 fetcher 를 선택해 FetchResult 를 반환한다."""
+    if render_mode == RenderMode.HEADLESS_IFRAME:
+        return headless_fetcher.fetch(url, render=RenderMode.HEADLESS_IFRAME)
+    if render_mode == RenderMode.HEADLESS:
+        return headless_fetcher.fetch(url, render=RenderMode.HEADLESS)
+    return http_fetcher.fetch(url)
+
+
+def _wait_for_frames(page, timeout_ms: int) -> None:
+    """http URL 을 가진 프레임이 하나라도 로드될 때까지 대기한다.
+    load 이벤트 후에도 iframe src 가 JS 로 채워지는 경우를 처리한다."""
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        if any(f.url.startswith("http") for f in page.frames[1:]):
+            return
+        time.sleep(0.2)
+
+
+def _inject_frames(page, outer_html: str) -> str:
+    """
+    로드된 iframe 의 HTML 을 외부 HTML 에 주입한다.
+    각 iframe 은 <div id="frame_{name}"> 으로 감싸져 </body> 앞에 삽입된다.
+    domain rules 의 CSS 셀렉터로 접근 가능해진다.
+    """
+    injections: list[str] = []
+    for frame in page.frames[1:]:           # index 0 은 메인 프레임
+        if not frame.url or not frame.url.startswith("http"):
+            continue
+        try:
+            frame_html = frame.content()
+            frame_id   = f"frame_{frame.name}" if frame.name else f"frame_{len(injections)}"
+            injections.append(f'<div id="{frame_id}">{frame_html}</div>')
+        except Exception:
+            pass
+
+    if injections:
+        outer_html = outer_html.replace("</body>", "\n".join(injections) + "\n</body>")
+    return outer_html

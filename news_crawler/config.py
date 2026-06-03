@@ -63,6 +63,12 @@ PROXY_PROVIDER          = _env("PROXY_PROVIDER", "direct")
 # rss:    Google News RSS + Chrome CBMi URL 변환 (봇 차단 시 대안)
 GOOGLE_DISCOVERY_MODE   = _env("GOOGLE_DISCOVERY_MODE", "search")
 
+# 포털별 발견 최대 페이지 수 (키워드 1회 실행당)
+NAVER_MAX_PAGES       = _env_int("NAVER_MAX_PAGES",       10)
+DAUM_MAX_PAGES        = _env_int("DAUM_MAX_PAGES",        10)
+GOOGLE_MAX_PAGES      = _env_int("GOOGLE_MAX_PAGES",       5)
+NAVER_STOCK_MAX_PAGES = _env_int("NAVER_STOCK_MAX_PAGES",  5)
+
 # Sink
 SINK_TYPE       = _env("SINK_TYPE", "file")   # file | solr
 FILE_SINK_DIR   = _env("FILE_SINK_DIR", "./data")

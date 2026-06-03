@@ -19,7 +19,7 @@ class HttpFetcher:
     def __init__(self, timeout: float = 15.0) -> None:
         self._timeout = timeout
 
-    def fetch(self, url: str, *, render: RenderMode = RenderMode.STATIC) -> FetchResult:
+    def fetch(self, url: str) -> FetchResult:
         """
         URL 을 GET 으로 가져와 FetchResult 반환.
         - 리다이렉트 자동 추적 (구글 RSS 중간 URL 처리)

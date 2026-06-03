@@ -19,4 +19,7 @@ def make_adapter(portal_type: str) -> SourceAdapter:
     if pt == "WEIBO":
         from news_crawler.adapters.weibo import WeiboAdapter
         return WeiboAdapter()
+    if pt == "NAVER_STOCK":
+        from news_crawler.adapters.naver_stock import NaverStockAdapter
+        return NaverStockAdapter()
     raise ValueError(f"알 수 없는 portal_type: {portal_type}")

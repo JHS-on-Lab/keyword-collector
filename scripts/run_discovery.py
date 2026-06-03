@@ -4,8 +4,9 @@ dispatcher 없이 특정 키워드만 즉시 수집할 때 사용.
 
 실행:
   python scripts/run_discovery.py --keyword "삼성전자" --portal NAVER
-  python scripts/run_discovery.py --keyword "삼성전자" --portal DAUM  --pages 5
-  python scripts/run_discovery.py --keyword "삼성전자" --portal GOOGLE --pages 3
+  python scripts/run_discovery.py --keyword "삼성전자" --portal DAUM   --pages 5
+  python scripts/run_discovery.py --keyword "삼성전자" --portal GOOGLE  --pages 3
+  python scripts/run_discovery.py --keyword "005930"   --portal NAVER_STOCK --pages 5
 """
 
 import sys, argparse, time
@@ -27,7 +28,7 @@ KST = timezone(timedelta(hours=9))
 
 p = argparse.ArgumentParser()
 p.add_argument("--keyword", required=True)
-p.add_argument("--portal",  required=True, choices=["NAVER", "DAUM", "GOOGLE", "WEIBO"])
+p.add_argument("--portal",  required=True, choices=["NAVER", "DAUM", "GOOGLE", "WEIBO", "NAVER_STOCK"])
 p.add_argument("--pages",   type=int, default=3, help="최대 페이지 수 (NAVER/DAUM)")
 p.add_argument("--period",  default="",   help="기간 (NAVER: 4=1일 / DAUM: d=1일)")
 p.add_argument("--worker-id", default="manual")
@@ -47,6 +48,9 @@ elif args.portal == "DAUM":
 elif args.portal == "GOOGLE":
     from news_crawler.adapters.google import UCGoogleAdapter
     adapter = UCGoogleAdapter(max_pages=args.pages)
+elif args.portal == "NAVER_STOCK":
+    from news_crawler.adapters.naver_stock import NaverStockAdapter
+    adapter = NaverStockAdapter(max_pages=args.pages)
 else:
     adapter = make_adapter(args.portal)
 
@@ -89,8 +93,6 @@ with db_context() as engine:
         cursor, page = result.next_cursor, page + 1
 
     duration_ms = int((time.monotonic() - started_mono) * 1000)
-
-    kw_repo.complete(keyword_id)
 
     # collection_log 기록
     log_repo.insert_discovery(DiscoveryLog(

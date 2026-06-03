@@ -23,6 +23,7 @@ import logging
 from selectolax.parser import HTMLParser
 from urllib.parse import urlparse
 
+from news_crawler import config
 from news_crawler.adapters._base import PaginatedAdapter
 from news_crawler.fetch._client import make_client
 from news_crawler.types import DiscoverResult, PortalType
@@ -38,9 +39,8 @@ _BLOCKED_HOSTS = {
 }
 
 # pd 파라미터 (실측값): 1=1주, 2=1개월, 3=오늘, 4=1일
-_DEFAULT_PERIOD    = "4"
-_DEFAULT_MAX_PAGES = 10
-_DEFAULT_DELAY_MS  = 800
+_DEFAULT_PERIOD   = "4"
+_DEFAULT_DELAY_MS = 800
 
 
 class NaverAdapter(PaginatedAdapter):
@@ -49,10 +49,10 @@ class NaverAdapter(PaginatedAdapter):
     def __init__(
         self,
         period: str    = _DEFAULT_PERIOD,
-        max_pages: int = _DEFAULT_MAX_PAGES,
+        max_pages: int | None = None,
         delay_ms: int  = _DEFAULT_DELAY_MS,
     ) -> None:
-        super().__init__(period, max_pages, delay_ms)
+        super().__init__(period, max_pages or config.NAVER_MAX_PAGES, delay_ms)
 
     def discover(self, keyword: str, cursor: str | None) -> DiscoverResult:
         start    = int(cursor) if cursor else 1
@@ -76,6 +76,14 @@ class NaverAdapter(PaginatedAdapter):
             resp.raise_for_status()
 
         urls = _parse_urls(resp.text)
+
+        if not urls:
+            _log.warning(
+                f"naver 0 urls keyword='{keyword}' page={page_num} "
+                f"— bot detection or sds-comps-base-layout change",
+                extra={"component": "adapter"},
+            )
+
         has_more = len(urls) >= 10 and page_num < self._max_pages
         next_cursor = str(start + 10) if has_more else None
 
@@ -107,8 +115,5 @@ def _parse_urls(html: str) -> list[str]:
             continue
 
         urls.append(href)
-
-    if not urls:
-        _log.warning("naver selector returned 0 urls — sds-comps-base-layout may have changed")
 
     return urls

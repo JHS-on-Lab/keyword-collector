@@ -11,43 +11,82 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from sqlalchemy import text, inspect
 from news_crawler.repository.db import db_context
 
-EXPECTED_TABLES = {"keyword", "article_url", "domain", "alembic_version"}
+EXPECTED_TABLES = {"keyword", "article_url", "domain", "collection_log", "alembic_version"}
+
+EXPECTED_COLUMNS = {
+    "keyword": {
+        "id", "keyword", "portal_type", "interval_seconds",
+        "next_discover_at", "last_cursor",
+        "enabled", "priority", "display_name", "disabled_reason",
+    },
+    "article_url": {
+        "id", "url", "url_hash", "host", "keyword_id", "portal_type",
+        "status", "attempt_count", "last_error_code", "last_error_msg",
+        "next_retry_at", "claimed_at", "claimed_by", "is_manual", "priority",
+        "extraction_method", "collected_date", "created_at", "updated_at",
+    },
+    "domain": {
+        "host", "rules_json", "rules_enabled", "rules_version",
+        "crawl_delay_ms", "render_mode", "proxy_tier",
+        "cooldown_until", "recent_fail_count", "success_rate", "avg_body_len",
+        "updated_at", "updated_by",
+    },
+}
 
 EXPECTED_INDEXES = {
-    "article_url": {"uq_article_url_hash", "ix_article_url_claim", "ix_article_url_host", "ix_article_url_keyword"},
+    "article_url": {"uq_article_url_hash", "ix_article_url_claim",
+                    "ix_article_url_host", "ix_article_url_keyword"},
     "keyword":     {"uq_keyword_portal"},
 }
 
 
 def main():
+    ok = True
+
     with db_context() as engine:
-        insp = inspect(engine)
+        insp   = inspect(engine)
         tables = set(insp.get_table_names())
 
-        print("=== 테이블 목록 ===")
-        missing = EXPECTED_TABLES - tables
-        for t in sorted(tables):
-            print(f"  {'OK' if t in EXPECTED_TABLES else '  '} {t}")
-        if missing:
-            print(f"  [MISSING] {missing}")
+        print("=== 테이블 ===")
+        missing_tables = EXPECTED_TABLES - tables
+        for t in sorted(EXPECTED_TABLES):
+            status = "OK" if t in tables else "MISSING"
+            print(f"  [{status:7s}] {t}")
+        if missing_tables:
+            ok = False
 
         print()
-        for table in ("keyword", "article_url", "domain"):
-            cols = [c["name"] for c in insp.get_columns(table)]
-            idxs = {i["name"] for i in insp.get_indexes(table)}
+        for table, expected_cols in EXPECTED_COLUMNS.items():
+            actual_cols = {c["name"] for c in insp.get_columns(table)}
+            actual_idxs = {i["name"] for i in insp.get_indexes(table)}
+            missing_cols = expected_cols - actual_cols
+            extra_cols   = actual_cols - expected_cols
+
             print(f"=== {table} ===")
-            print(f"  columns : {', '.join(cols)}")
-            print(f"  indexes : {', '.join(sorted(idxs))}")
+            if missing_cols:
+                print(f"  [MISSING cols] {sorted(missing_cols)}")
+                ok = False
+            else:
+                print(f"  [OK] 컬럼 {len(actual_cols)}개")
+
+            if extra_cols:
+                print(f"  [extra  cols] {sorted(extra_cols)}")
+
+            exp_idx = EXPECTED_INDEXES.get(table, set())
+            missing_idx = exp_idx - actual_idxs
+            if missing_idx:
+                print(f"  [MISSING idx ] {sorted(missing_idx)}")
+                ok = False
+            else:
+                print(f"  [OK] 인덱스 {len(actual_idxs)}개")
 
         print()
-        # SKIP LOCKED 동작 확인 (MySQL 8.0+ 필요, 트랜잭션 안에서만 유효)
         with engine.begin() as conn:
-            conn.execute(text(
-                "SELECT id FROM keyword LIMIT 1 FOR UPDATE SKIP LOCKED"
-            ))
+            conn.execute(text("SELECT id FROM keyword LIMIT 1 FOR UPDATE SKIP LOCKED"))
             print("SKIP LOCKED 지원: OK")
 
-        print("\n스키마 검증 완료.")
+    print()
+    print("스키마 검증 완료." if ok else "스키마 검증 실패 — 위 MISSING 항목을 확인하세요.")
 
 
 if __name__ == "__main__":

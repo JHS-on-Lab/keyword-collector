@@ -23,6 +23,9 @@ import time
 import logging
 from datetime import datetime, timezone, timedelta
 
+_MAX_403_RETRIES = 5
+_RETRY_DELAY_SEC = 1800   # 30분
+
 from news_crawler import config
 from news_crawler.worker import _healthcheck
 from news_crawler.adapters import make_adapter
@@ -52,6 +55,7 @@ def run_discovery_loop(portal: str, worker_id: str) -> None:
     heartbeat_interval = config.HEARTBEAT_INTERVAL_SECONDS
     last_heartbeat = time.monotonic()
     processed = 0
+
 
     with db_context() as engine:
         kw_repo   = KeywordRepo(engine)
@@ -87,8 +91,26 @@ def run_discovery_loop(portal: str, worker_id: str) -> None:
                     time.sleep(_IDLE_SLEEP_SEC)
                     continue
 
-                _run_one(kw, kw_repo, url_repo, log_repo, worker_id, adapter)
+                error = _run_one(kw, kw_repo, url_repo, log_repo, worker_id, adapter)
                 processed += 1
+
+                if error and "403" in error:
+                    kid   = kw["id"]
+                    count = log_repo.count_today_403(kid)
+                    if count < _MAX_403_RETRIES:
+                        retry_at = datetime.now(timezone.utc) + timedelta(seconds=_RETRY_DELAY_SEC)
+                        kw_repo.reschedule(kid, retry_at)
+                        logger.warning(
+                            f"403 keyword='{kw['keyword']}' attempt={count}/{_MAX_403_RETRIES}"
+                            f" — retry at {retry_at.strftime('%H:%M UTC')}",
+                            extra={"phase": "retry", "worker_id": worker_id, "component": "dispatcher"},
+                        )
+                    else:
+                        logger.warning(
+                            f"403 keyword='{kw['keyword']}' gave up after {_MAX_403_RETRIES} attempts"
+                            f" — next try in 24h",
+                            extra={"phase": "retry", "worker_id": worker_id, "component": "dispatcher"},
+                        )
         finally:
             if adapter and hasattr(adapter, "close"):
                 adapter.close()
@@ -101,8 +123,8 @@ def _run_one(
     log_repo: CollectionLogRepo,
     worker_id: str,
     adapter=None,
-) -> None:
-    """키워드 하나를 발견한다. 실패해도 예외를 밖으로 올리지 않아 루프가 멈추지 않는다."""
+) -> str | None:
+    """키워드 하나를 발견한다. 성공 시 None, 실패 시 error_msg 반환."""
     keyword    = kw["keyword"]
     portal     = kw["portal_type"]
     keyword_id = kw["id"]
@@ -117,7 +139,15 @@ def _run_one(
     try:
         if adapter is None:
             adapter = make_adapter(portal)
-        cursor, page = None, 1
+
+        # last_cursor 가 있으면 해당 페이지부터 재개 (403 재시도 시 중단 지점 복원)
+        cursor = kw.get("last_cursor")
+        page   = 1
+        if cursor:
+            logger.info(
+                f"resuming from cursor='{cursor}'",
+                extra={**extra, "phase": "discover_resume"},
+            )
 
         while True:
             result = adapter.discover(keyword, cursor)
@@ -137,9 +167,9 @@ def _run_one(
 
         duration_ms = int((time.monotonic() - started_mono) * 1000)
 
-        kw_repo.complete(keyword_id)
+        # 성공 완료 → last_cursor 리셋 (다음 수집은 첫 페이지부터)
+        kw_repo.set_cursor(keyword_id, None)
 
-        # 이번 수집 결과를 collection_log 에 한 줄로 남긴다 (나중에 SQL 로 추이 조회 가능).
         log_repo.insert_discovery(DiscoveryLog(
             keyword_id    = keyword_id,
             portal_type   = portal,
@@ -157,6 +187,8 @@ def _run_one(
             extra={**extra, "phase": "discover_done"},
         )
 
+        return None
+
     except Exception as exc:
         duration_ms = int((time.monotonic() - started_mono) * 1000)
         error_msg = f"{type(exc).__name__}: {exc}"
@@ -165,6 +197,12 @@ def _run_one(
             f"error keyword='{keyword}' portal={portal}",
             extra={**extra, "phase": "discover_error"},
         )
+
+        # 실패한 cursor 저장 → 재시도 시 이 페이지부터 재개
+        try:
+            kw_repo.set_cursor(keyword_id, cursor)
+        except Exception:
+            pass
 
         try:
             log_repo.insert_discovery(DiscoveryLog(
@@ -185,3 +223,4 @@ def _run_one(
             )
 
         time.sleep(_ERROR_SLEEP_SEC)
+        return error_msg

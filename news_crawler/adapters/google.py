@@ -90,10 +90,10 @@ class UCGoogleAdapter:
 
     def __init__(
         self,
-        max_pages: int = _DEFAULT_MAX_PAGES,
+        max_pages: int | None = None,
         delay_sec: float = _DEFAULT_DELAY_SEC,
     ) -> None:
-        self._max_pages = max_pages
+        self._max_pages = max_pages or config.GOOGLE_MAX_PAGES
         self._delay_sec = delay_sec
         self._driver = None
 
@@ -146,6 +146,14 @@ class UCGoogleAdapter:
         time.sleep(self._delay_sec)
 
         urls = _extract_search_urls(driver)
+
+        if not urls:
+            _log.warning(
+                f"google 0 urls keyword='{keyword}' page={page} "
+                f"— bot detection or page structure change",
+                extra={"component": "adapter"},
+            )
+
         has_more = len(urls) >= 8 and page < self._max_pages
         next_cursor = str(page + 1) if has_more else None
 
@@ -187,7 +195,10 @@ class UCGoogleAdapter:
                 if "google.com" not in urlparse(final).netloc:
                     resolved.append(final)
                 else:
-                    _log.warning(f"cbmi unresolved: {url[:60]}")
+                    _log.warning(
+                        f"cbmi unresolved: {url[:80]}",
+                        extra={"component": "adapter"},
+                    )
             except Exception as exc:
                 _log.debug(f"cbmi navigate failed url={url[:60]} err={exc}")
         return resolved
@@ -244,9 +255,6 @@ def _extract_search_urls(driver) -> list[str]:
         if href not in seen:
             seen.add(href)
             urls.append(href)
-
-    if not urls:
-        _log.warning("google search adapter returned 0 urls — page structure may have changed")
 
     return urls
 

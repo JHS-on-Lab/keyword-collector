@@ -2,10 +2,15 @@
 article_url 테이블의 discovered URL 을 읽어 본문 추출 → FileSink 저장.
 워커 루프 대신 지정한 건수만 처리하고 종료.
 
+domain 테이블의 render_mode 를 참조해 static / headless / headless_with_iframe
+를 자동으로 선택한다 (extraction_worker 와 동일한 로직).
+
 실행:
-  python scripts/run_extraction.py                    # 기본: 최대 50건
+  python scripts/run_extraction.py                         # 기본: 최대 50건
   python scripts/run_extraction.py --limit 100
-  python scripts/run_extraction.py --limit 0          # 0 = 남은 전체 처리
+  python scripts/run_extraction.py --limit 0               # 0 = 남은 전체 처리
+  python scripts/run_extraction.py --portal NAVER_STOCK    # 특정 포털만
+  python scripts/run_extraction.py --portal NAVER --limit 20
 """
 
 import sys
@@ -26,14 +31,19 @@ from news_crawler.repository.domain_repo import DomainRepo
 from news_crawler.domain_logic.backoff import next_retry_at
 from news_crawler.domain_logic.failure_classifier import classify_http, classify_exception
 from news_crawler.extraction.extractor import DefaultExtractor
+from news_crawler.fetch.headless import HeadlessFetcher, fetch_by_render_mode
 from news_crawler.fetch.http_client import HttpFetcher
-from news_crawler.sink import make_sink
 from news_crawler.fetch.rate_limit import RateLimiter
-from news_crawler.types import ExtractionFailure
+from news_crawler.sink import make_sink
+from news_crawler.types import ExtractionFailure, RenderMode
+
+_PORTALS = ["NAVER", "DAUM", "GOOGLE", "WEIBO", "NAVER_STOCK"]
 
 p = argparse.ArgumentParser()
 p.add_argument("--limit",     type=int, default=50,
                help="처리할 최대 건수. 0 = 전체 (기본: 50)")
+p.add_argument("--portal",    choices=_PORTALS, default=None,
+               help="특정 포털만 처리 (기본: 전체)")
 p.add_argument("--worker-id", default="manual-extract")
 args = p.parse_args()
 
@@ -46,14 +56,15 @@ t_start = time.monotonic()
 with db_context() as engine:
     url_repo    = ArticleUrlRepo(engine)
     domain_repo = DomainRepo(engine)
-    fetcher     = HttpFetcher()
+    http_fetcher    = HttpFetcher()
+    headless_fetcher = HeadlessFetcher()
     limiter     = RateLimiter(domain_repo)
     extractor   = DefaultExtractor(domain_repo=domain_repo)
-    sink        = make_sink()  # SINK_TYPE 환경변수로 file / solr 선택
+    sink        = make_sink()
 
     i = 0
     while i < limit:
-        item = url_repo.claim_next(worker_id=worker_id)
+        item = url_repo.claim_next(worker_id=worker_id, portal=args.portal)
         if item is None:
             break
 
@@ -64,12 +75,14 @@ with db_context() as engine:
         keyword = item.get("keyword", "")
         attempt = item["attempt_count"]
 
-        print(f"[{i:04d}] {url[:80]}")
+        print(f"[{i:04d}] [{portal}] {url[:80]}")
         limiter.wait(host)
 
-        # Fetch
+        domain      = domain_repo.get(host)
+        render_mode = (domain or {}).get("render_mode", RenderMode.STATIC)
+
         try:
-            fr = fetcher.fetch(url)
+            fr = fetch_by_render_mode(url, render_mode, http_fetcher, headless_fetcher)
         except Exception as exc:
             code, is_perm = classify_exception(exc)
             domain_repo.upsert_health(host, success=False, body_len=None)
@@ -88,7 +101,6 @@ with db_context() as engine:
             print(f"       HTTP {fr.status_code} ({code.value})")
             continue
 
-        # Extract
         result = extractor.extract(url=fr.url, html=fr.html, host=host,
                                    portal_type=portal, keyword=keyword)
         if isinstance(result, ExtractionFailure):
@@ -103,12 +115,13 @@ with db_context() as engine:
             print(f"       EXTRACT ({result.error_code.value}): {result.error_msg[:60]}")
             continue
 
-        # Sink
         sink.write(result)
         url_repo.mark_stored(item["id"], result.extraction_method)
         domain_repo.upsert_health(host, success=True, body_len=result.body_len)
         stored += 1
         print(f"       OK [{result.extraction_method}] {result.title[:50]}  ({result.body_len}자)")
+
+    headless_fetcher.close()
 
 elapsed = time.monotonic() - t_start
 print(f"\n완료: 저장 {stored}건  실패 {failed}건  소요 {elapsed:.1f}초")

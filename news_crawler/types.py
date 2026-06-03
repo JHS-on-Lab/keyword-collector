@@ -15,10 +15,11 @@ from enum import Enum
 # ---------------------------------------------------------------------------
 
 class PortalType(str, Enum):
-    NAVER  = "NAVER"
-    DAUM   = "DAUM"
-    GOOGLE = "GOOGLE"
-    WEIBO  = "WEIBO"
+    NAVER       = "NAVER"
+    DAUM        = "DAUM"
+    GOOGLE      = "GOOGLE"
+    WEIBO       = "WEIBO"
+    NAVER_STOCK = "NAVER_STOCK"
 
 
 class ArticleStatus(str, Enum):
@@ -31,8 +32,9 @@ class ArticleStatus(str, Enum):
 
 
 class RenderMode(str, Enum):
-    STATIC   = "static"
-    HEADLESS = "headless"
+    STATIC          = "static"
+    HEADLESS        = "headless"
+    HEADLESS_IFRAME = "headless_with_iframe"  # iframe 내용을 외부 HTML에 주입
 
 
 # ---------------------------------------------------------------------------

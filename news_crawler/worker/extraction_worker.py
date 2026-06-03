@@ -28,6 +28,7 @@ from news_crawler.worker import _healthcheck
 from news_crawler.domain_logic.backoff import next_retry_at
 from news_crawler.domain_logic.failure_classifier import classify_http, classify_exception
 from news_crawler.extraction.extractor import DefaultExtractor
+from news_crawler.fetch.headless import HeadlessFetcher, fetch_by_render_mode
 from news_crawler.fetch.http_client import HttpFetcher
 from news_crawler.fetch.rate_limit import RateLimiter
 from news_crawler.repository.article_url_repo import ArticleUrlRepo
@@ -36,7 +37,7 @@ from news_crawler.repository.db import db_context
 from news_crawler.repository.domain_repo import DomainRepo
 from news_crawler.sink import make_sink
 from news_crawler.ports import Sink
-from news_crawler.types import ErrorCode, ExtractionFailure
+from news_crawler.types import ErrorCode, ExtractionFailure, RenderMode
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,6 @@ def run_extraction_loop(portal: str, worker_id: str) -> None:
     )
 
     # HeadlessFetcher 는 브라우저 프로세스를 띄우므로 루프 밖에서 한 번만 생성한다.
-    # headless 도메인이 없어도 미리 준비해 두고, 실제 사용은 render_mode 확인 후 결정한다.
-    from news_crawler.fetch.headless import HeadlessFetcher
     headless_fetcher = HeadlessFetcher()
 
     with db_context() as engine:
@@ -82,8 +81,9 @@ def run_extraction_loop(portal: str, worker_id: str) -> None:
                 last_heartbeat = now
                 _healthcheck.write()
 
+            portal_filter = None if portal.upper() == "ALL" else portal.upper()
             try:
-                item = url_repo.claim_next(worker_id=worker_id)
+                item = url_repo.claim_next(worker_id=worker_id, portal=portal_filter)
             except Exception:
                 logger.exception(
                     f"claim_next failed, sleeping {_ERROR_SEC}s",
@@ -161,15 +161,9 @@ def _process_one(
     # 레이트 리밋
     limiter.wait(host)
 
-    # Fetch — render_mode 에 따라 정적 HTTP 또는 headless 브라우저 선택.
-    # headless_fetcher 는 루프 시작 시 한 번만 생성되고 재사용된다 (브라우저 재시작 비용 절감).
-    render_mode = (domain or {}).get("render_mode", "static")
+    render_mode = (domain or {}).get("render_mode", RenderMode.STATIC)
     try:
-        if render_mode == "headless":
-            from news_crawler.types import RenderMode
-            fr = headless_fetcher.fetch(url, render=RenderMode.HEADLESS)
-        else:
-            fr = fetcher.fetch(url)
+        fr = fetch_by_render_mode(url, render_mode, fetcher, headless_fetcher)
     except Exception as exc:
         error_code, is_permanent = classify_exception(exc)
         error_msg = f"{type(exc).__name__}: {exc}"

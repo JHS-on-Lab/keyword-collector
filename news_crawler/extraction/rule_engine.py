@@ -1,21 +1,28 @@
 """
 도메인 전용 추출 규칙 엔진.
 
-domain.rules_json 에 저장된 CSS/XPath 셀렉터로 제목·본문·저자·언론사를 추출한다.
+domain.rules_json 에 저장된 CSS/XPath 셀렉터로 제목·본문·저자·언론사·날짜를 추출한다.
 규칙이 있으면 trafilatura/readability 보다 먼저 시도되고,
 규칙이 없거나 실패하면 LibraryChain 으로 폴백한다.
 
 rules_json 형식:
   {
-    "title":  {"css": "h1.article-title"},
-    "body":   {"css": "div.article-body p"},
-    "author": {"css": "span.byline"},
-    "press":  {"xpath": "//meta[@property='og:site_name']/@content"}
+    "title":        {"css": "h1.article-title"},
+    "body":         {"css": "div.article-body p"},
+    "author":       {"css": "span.byline"},
+    "press":        {"xpath": "//meta[@property='og:site_name']/@content"},
+    "published_at": {"css": "span.date", "date_format": "%Y.%m.%d %H:%M"},
+    "min_body_len": 10
   }
 
 지원 셀렉터 타입:
   "css"   — selectolax 로 처리. 여러 노드가 매칭되면 텍스트를 이어 붙인다.
   "xpath" — lxml 로 처리. 속성값(//@attr)과 텍스트(//tag) 모두 지원.
+
+published_at 규칙:
+  "date_format" — strptime 포맷 문자열. 미지정 시 날짜 파싱을 시도하지 않는다.
+  파싱 실패 시 None 으로 폴백한다 (추출 전체를 실패시키지 않는다).
+  타임존은 KST(UTC+9) 고정.
 
 도메인 규칙은 TTL 캐시에 보관한다 (RULES_CACHE_TTL_SECONDS, 기본 60초).
 재배포 없이 DB 에서 rules_json 을 수정하면 캐시 만료 후 자동 반영된다.
@@ -23,12 +30,15 @@ rules_json 형식:
 
 from __future__ import annotations
 
+import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from news_crawler import config
 from news_crawler.domain_logic.url_normalizer import normalize, url_hash
 from news_crawler.types import Article, ErrorCode, ExtractionFailure
+
+_KST = timezone(timedelta(hours=9))
 
 
 class RuleEngine:
@@ -50,7 +60,13 @@ class RuleEngine:
         # 캐시 미스 또는 만료 — DB 값으로 갱신
         rules: dict = {}
         if domain_row and domain_row.get("rules_enabled") and domain_row.get("rules_json"):
-            rules = domain_row["rules_json"] or {}
+            raw = domain_row["rules_json"]
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except Exception:
+                    raw = {}
+            rules = raw or {}
 
         self._cache[host] = (rules, now)
         return rules or None
@@ -70,6 +86,12 @@ class RuleEngine:
         author = _apply_rule(html, rules.get("author")) or None
         press  = _apply_rule(html, rules.get("press"))  or None
 
+        published_at_rule = rules.get("published_at")
+        published_at = _parse_date(
+            _apply_rule(html, published_at_rule),
+            (published_at_rule or {}).get("date_format"),
+        )
+
         if not title:
             return ExtractionFailure(
                 url=url,
@@ -78,11 +100,12 @@ class RuleEngine:
                 is_permanent=True,
             )
 
-        if not body or len(body) < 200:
+        min_body = int(rules.get("min_body_len", 200))
+        if not body or len(body) < min_body:
             return ExtractionFailure(
                 url=url,
                 error_code=ErrorCode.BODY_TOO_SHORT,
-                error_msg=f"rule extracted body_len={len(body)} < 200",
+                error_msg=f"rule extracted body_len={len(body)} < {min_body}",
                 is_permanent=False,
             )
 
@@ -94,7 +117,7 @@ class RuleEngine:
             keyword=keyword,
             title=title.strip(),
             body=body.strip(),
-            published_at=None,
+            published_at=published_at,
             author=author,
             press=press,
             collected_at=datetime.now(timezone.utc),
@@ -120,6 +143,16 @@ def _apply_rule(html: str, rule: dict | None) -> str:
         pass
 
     return ""
+
+
+def _parse_date(text: str, date_format: str | None) -> datetime | None:
+    """텍스트를 KST datetime 으로 파싱한다. 실패하면 None."""
+    if not text or not date_format:
+        return None
+    try:
+        return datetime.strptime(text.strip(), date_format).replace(tzinfo=_KST)
+    except ValueError:
+        return None
 
 
 def _extract_css(html: str, selector: str) -> str:

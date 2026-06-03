@@ -136,12 +136,13 @@ erDiagram
     bigint id PK
     string keyword
     string portal_type
+    string display_name
     int interval_seconds
-    timestamp last_discovered_at
     timestamp next_discover_at
     string last_cursor
     bool enabled
     int priority
+    string disabled_reason
   }
   ARTICLE_URL {
     bigint id PK
@@ -244,7 +245,7 @@ erDiagram
 포털의 기간 필터는 보통 띄엄띄엄한 단위(1일 / 1주 / 1개월)뿐이라 "지난 36시간" 같은 정확한 경계를 표현할 수 없다. 그래서 역할을 나눈다.
 
 - **기간 필터 = 넉넉한 하한.** 누락이 안 생기게 한 단계 넉넉히 고른다(어제치가 확실히 포함되도록, 필요하면 "1일" 대신 "1주"). 과수집분은 아래 두 장치가 받아낸다.
-- **정밀 경계 = `keyword.last_discovered_at` 컷오프.** 매 실행은 "마지막 수집 시각 이후"를 목표로 하고, 약간의 안전 겹침을 둬서 그보다 조금 이전부터 가져온다. 실행이 하루·이틀 밀려도 컷오프 기준으로 따라잡으므로 "1일 필터가 없어서 생기는 누락"이 사라진다.
+- **정밀 경계 = `collection_log` 기반 컷오프.** 매 실행은 "마지막 성공 수집 시각 이후"를 목표로 하고, 약간의 안전 겹침을 둬서 그보다 조금 이전부터 가져온다. 마지막 성공 시각은 `collection_log`에서 `MAX(started_at) WHERE keyword_id=? AND error_msg IS NULL`로 조회한다. 실행이 하루·이틀 밀려도 컷오프 기준으로 따라잡으므로 "1일 필터가 없어서 생기는 누락"이 사라진다.
 - **최종 방어 = `url_hash` 중복 제거.** 겹쳐 들어온 과거 기사는 6절 메커니즘으로 조용히 버려진다.
 
 ### 8.2 정렬 신뢰 가능 여부로 중단 전략이 갈린다

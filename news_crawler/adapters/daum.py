@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from selectolax.parser import HTMLParser
 
+from news_crawler import config
 from news_crawler.adapters._base import PaginatedAdapter
 from news_crawler.fetch._client import make_client
 from news_crawler.types import DiscoverResult, PortalType
@@ -21,9 +22,8 @@ from news_crawler.types import DiscoverResult, PortalType
 _SEARCH_URL = "https://search.daum.net/search"
 
 # period 파라미터: d=1일, w=1주, m=1개월
-_DEFAULT_PERIOD    = "d"
-_DEFAULT_MAX_PAGES = 10
-_DEFAULT_DELAY_MS  = 800
+_DEFAULT_PERIOD   = "d"
+_DEFAULT_DELAY_MS = 800
 
 
 class DaumAdapter(PaginatedAdapter):
@@ -32,10 +32,10 @@ class DaumAdapter(PaginatedAdapter):
     def __init__(
         self,
         period: str    = _DEFAULT_PERIOD,
-        max_pages: int = _DEFAULT_MAX_PAGES,
+        max_pages: int | None = None,
         delay_ms: int  = _DEFAULT_DELAY_MS,
     ) -> None:
-        super().__init__(period, max_pages, delay_ms)
+        super().__init__(period, max_pages or config.DAUM_MAX_PAGES, delay_ms)
 
     def discover(self, keyword: str, cursor: str | None) -> DiscoverResult:
         page = int(cursor) if cursor else 1

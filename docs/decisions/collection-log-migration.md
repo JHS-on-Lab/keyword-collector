@@ -17,5 +17,12 @@
 
 | 테이블 | 저장 내용 |
 |--------|-----------|
-| `keyword` | `last_discovered_at` — 마지막 성공 시각만 보존 |
+| `keyword` | 스케줄 설정 (`interval_seconds`, `next_discover_at`, `enabled` 등). 실행 이력 없음. |
 | `collection_log` | 런마다 1행: `urls_found`, `urls_inserted`, `urls_skipped`, `duration_ms`, `error_msg` |
+
+`keyword.last_discovered_at` 은 2026-06-03 마이그레이션(`9f4a2d1e8c70`)으로 제거됐다.  
+마지막 성공 수집 시각은 `collection_log`에서 조회한다:
+```sql
+SELECT MAX(started_at) FROM collection_log
+WHERE keyword_id = :kid AND run_type = 'discovery' AND error_msg IS NULL;
+```

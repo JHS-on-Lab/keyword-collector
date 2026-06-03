@@ -82,6 +82,62 @@ GROUP BY host ORDER BY cnt DESC LIMIT 20;
 
 ---
 
+### render_mode = headless_with_iframe — 본문이 iframe 안에 있을 때
+
+페이지 자체는 JS 없이 로드되지만, **실제 본문이 다른 도메인의 iframe 안에 있는** 경우에 사용한다.  
+대표 예: 네이버 증권 종목토론 (`finance.naver.com`) — 본문이 `m.stock.naver.com` iframe 안에 위치.
+
+```bash
+python scripts/add_domain_rule.py --host finance.naver.com --render headless_with_iframe
+```
+
+**동작 원리**
+
+Playwright 로 페이지를 로드한 뒤, 로드된 모든 iframe 의 HTML 을 꺼내 외부 문서 `</body>` 직전에 주입한다.
+
+```
+원본 HTML                          주입 후 HTML
+─────────────────────────────      ─────────────────────────────────────
+<body>                             <body>
+  <iframe name="contents"            <iframe name="contents" ...>
+    src="m.stock.naver.com/...">     </iframe>
+  </iframe>
+</body>                             <!-- 주입된 부분 -->
+                                     <div id="frame_contents">
+                                       <div class="se-main-container">
+                                         본문 내용...
+                                       </div>
+                                     </div>
+                                   </body>
+```
+
+iframe 의 `name` 속성이 `contents` 이면 `<div id="frame_contents">` 로 감싸진다.  
+이름이 없는 iframe 은 `frame_0`, `frame_1` 순서로 번호가 붙는다.
+
+주입 후에는 일반 CSS 셀렉터로 iframe 안의 내용에 접근할 수 있다.  
+`rules_json` 의 `body` 셀렉터를 `#frame_contents .se-main-container` 처럼 작성하면 된다.
+
+**headless_with_iframe 이 필요한 징후:**
+- 브라우저 개발자 도구에서 본문 영역을 찾으면 `<iframe>` 태그 안에 있음
+- `headless` 만 써도 본문이 비어 나옴 (iframe 내부는 `page.content()` 에 포함되지 않음)
+
+**설정 예 (네이버 증권 종목토론)**
+
+```bash
+python scripts/add_domain_rule.py \
+  --host finance.naver.com \
+  --render headless_with_iframe \
+  --rules-json '{
+    "title":        {"css": "div.title"},
+    "body":         {"css": "#frame_contents .se-main-container"},
+    "author":       {"css": "span.profile_name"},
+    "published_at": {"css": "th.gray03", "date_format": "%Y.%m.%d %H:%M"},
+    "min_body_len": 10
+  }'
+```
+
+---
+
 ### cooldown — 수동 차단 해제
 
 추출 워커가 429 또는 5xx 를 연속 감지하면 자동으로 `cooldown_until` 을 설정한다.  
@@ -123,21 +179,40 @@ ORDER BY recent_fail_count DESC;
 
 ```json
 {
-  "title":  {"css": "h1.article-title"},
-  "body":   {"css": "div.article-body p"},
-  "author": {"css": "span.byline"},
-  "press":  {"xpath": "//meta[@property='og:site_name']/@content"}
+  "title":        {"css": "h1.article-title"},
+  "body":         {"css": "div.article-body p"},
+  "author":       {"css": "span.byline"},
+  "press":        {"xpath": "//meta[@property='og:site_name']/@content"},
+  "published_at": {"css": "span.date", "date_format": "%Y.%m.%d %H:%M"},
+  "min_body_len": 10
 }
 ```
 
-- `css` — CSS 셀렉터 (selectolax 사용). 여러 노드가 매칭되면 줄바꿈으로 이어 붙인다.
-- `xpath` — XPath 표현식 (lxml 사용). 속성값(`//@attr`)과 텍스트(`//tag`) 모두 지원.
-- 필드는 `title`, `body`, `author`, `press` 를 지원한다. 일부만 지정해도 된다.
+| 키 | 설명 |
+|----|------|
+| `title` | 제목 셀렉터 |
+| `body` | 본문 셀렉터. 여러 노드가 매칭되면 줄바꿈으로 이어 붙인다 |
+| `author` | 작성자 셀렉터 (선택) |
+| `press` | 언론사 셀렉터 (선택) |
+| `published_at` | 날짜 셀렉터 + `date_format` (strptime 포맷). 파싱 실패 시 NULL 폴백. 타임존 KST 고정 |
+| `min_body_len` | 최소 본문 길이 (기본 200자). 짧은 본문이 정상인 도메인에서 낮게 설정 |
+
+셀렉터 타입:
+- `css` — selectolax 로 처리
+- `xpath` — lxml 로 처리. 속성값(`//@attr`)과 텍스트(`//tag`) 모두 지원
+
+필드는 일부만 지정해도 된다. 없는 필드는 NULL 또는 라이브러리 폴백으로 처리된다.
 
 ### 등록 방법
 
-현재 `add_domain_rule.py` 는 `--delay`, `--render` 만 지원하므로 `rules_json` 은 SQL 로 직접 등록한다:
+`add_domain_rule.py --rules-json` 으로 등록한다. `rules_enabled = 1` 은 자동으로 설정된다.
 
+```bash
+python scripts/add_domain_rule.py --host www.chosun.com \
+  --rules-json '{"title":{"css":"h1.article-tit"},"body":{"css":"div.article-body"}}'
+```
+
+SQL 로 직접 등록할 때:
 ```sql
 INSERT INTO domain (host, rules_json, rules_enabled, updated_by)
 VALUES (
@@ -150,6 +225,11 @@ ON DUPLICATE KEY UPDATE
   rules_json    = VALUES(rules_json),
   rules_enabled = true,
   updated_by    = 'manual';
+```
+
+규칙을 잠시 끄되 데이터는 보존하고 싶을 때:
+```bash
+python scripts/add_domain_rule.py --host www.chosun.com --rules-disable
 ```
 
 ### 규칙 캐시
