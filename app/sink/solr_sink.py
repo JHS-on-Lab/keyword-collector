@@ -15,7 +15,7 @@ SOLR_COMMIT_WITHIN_MS:
 
 Solr 스키마에 다음 필드가 필요하다:
   id, title, body, portal_type, keyword, url,
-  author, press, published_at, collected_at, extraction_method, body_len
+  author, published_at, collected_at, extraction_method, body_len
 """
 
 from __future__ import annotations

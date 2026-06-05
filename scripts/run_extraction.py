@@ -87,12 +87,14 @@ def _run_url_mode(args: argparse.Namespace) -> None:
         domain = domain_repo.get(host)
         render_mode = (domain or {}).get("render_mode", RenderMode.STATIC)
         print(f"render_mode : {render_mode}")
+        wait_for_selector = None
         if domain and domain.get("rules_json"):
             import json as _json
             rules = domain["rules_json"]
             if isinstance(rules, str):
                 rules = _json.loads(rules)
-            rule_type = "json_api" if "json_api" in rules else "css/xpath"
+            rule_type = next((t for t in ("json_api", "amp_url", "next_data") if t in rules), "css/xpath")
+            wait_for_selector = rules.get("headless_wait_for")
             print(f"domain rule : {rule_type}\n")
         else:
             print("domain rule : 없음 (라이브러리 체인)\n")
@@ -100,7 +102,8 @@ def _run_url_mode(args: argparse.Namespace) -> None:
         limiter.wait(host)
 
         print("=== Fetch ===")
-        fr = fetch_by_render_mode(url, render_mode, fetcher, headless)
+        fr = fetch_by_render_mode(url, render_mode, fetcher, headless,
+                                  wait_for_selector=wait_for_selector)
         print(f"status : {fr.status_code}")
         print(f"html   : {len(fr.html):,} bytes\n")
 
@@ -125,7 +128,7 @@ def _run_url_mode(args: argparse.Namespace) -> None:
         print(f"method      : {result.extraction_method}")
         print(f"title       : {result.title}")
         print(f"author      : {result.author}")
-        print(f"press       : {result.press}")
+
         print(f"published_at: {result.published_at}")
         print(f"body_len    : {result.body_len}")
         print(f"body:\n{result.body}")
@@ -213,7 +216,7 @@ def _run_db_mode(args: argparse.Namespace) -> None:
         print(f"method      : {result.extraction_method}")
         print(f"title       : {result.title}")
         print(f"author      : {result.author}")
-        print(f"press       : {result.press}")
+
         print(f"published_at: {result.published_at}")
         print(f"body_len    : {result.body_len}")
         print(f"body:\n{result.body}")

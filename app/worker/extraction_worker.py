@@ -162,8 +162,17 @@ def _process_one(
     limiter.wait(host)
 
     render_mode = (domain or {}).get("render_mode", RenderMode.STATIC)
+    rules_json = domain.get("rules_json") if domain else None
+    if isinstance(rules_json, str):
+        import json as _json
+        try:
+            rules_json = _json.loads(rules_json)
+        except Exception:
+            rules_json = None
+    wait_for_selector = (rules_json or {}).get("headless_wait_for")
     try:
-        fr = fetch_by_render_mode(url, render_mode, fetcher, headless_fetcher)
+        fr = fetch_by_render_mode(url, render_mode, fetcher, headless_fetcher,
+                                  wait_for_selector=wait_for_selector)
     except Exception as exc:
         error_code, is_permanent = classify_exception(exc)
         error_msg = f"{type(exc).__name__}: {exc}"

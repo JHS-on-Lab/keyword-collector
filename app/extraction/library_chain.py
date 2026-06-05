@@ -72,7 +72,6 @@ class LibraryChain:
             body=body.strip(),
             published_at=None,
             author=None,
-            press=None,
             collected_at=datetime.now(timezone.utc),
             extraction_method=method,
         )

@@ -75,7 +75,6 @@ class Article:
     body: str
     published_at: datetime | None
     author: str | None
-    press: str | None
     collected_at: datetime
     extraction_method: str      # e.g. "trafilatura", "readability", "rule:css"
     body_len: int = field(init=False)

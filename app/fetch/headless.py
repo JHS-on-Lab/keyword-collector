@@ -38,7 +38,13 @@ class HeadlessFetcher:
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch(headless=True)
 
-    def fetch(self, url: str, *, render: RenderMode = RenderMode.HEADLESS) -> FetchResult:
+    def fetch(
+        self,
+        url: str,
+        *,
+        render: RenderMode = RenderMode.HEADLESS,
+        wait_for_selector: str | None = None,
+    ) -> FetchResult:
         self._ensure_browser()
 
         with_iframe = (render == RenderMode.HEADLESS_IFRAME)
@@ -50,6 +56,15 @@ class HeadlessFetcher:
         page  = self._browser.new_page()
         try:
             response = page.goto(url, timeout=self._timeout_ms, wait_until=wait_until)
+
+            # Next.js 등 CSR 사이트는 domcontentloaded 이후에도 React 하이드레이션이 진행된다.
+            # headless_wait_for 셀렉터가 지정된 경우 해당 요소가 나타날 때까지 대기한다.
+            if wait_for_selector:
+                try:
+                    page.wait_for_selector(wait_for_selector, timeout=self._timeout_ms)
+                except Exception:
+                    pass  # 타임아웃 시 그대로 진행
+
             html     = page.content()
             status   = response.status if response else 200
 
@@ -88,12 +103,14 @@ def fetch_by_render_mode(
     render_mode: str,
     http_fetcher: "HttpFetcher",
     headless_fetcher: "HeadlessFetcher",
+    wait_for_selector: str | None = None,
 ) -> FetchResult:
     """render_mode 문자열에 따라 적절한 fetcher 를 선택해 FetchResult 를 반환한다."""
     if render_mode == RenderMode.HEADLESS_IFRAME:
         return headless_fetcher.fetch(url, render=RenderMode.HEADLESS_IFRAME)
     if render_mode == RenderMode.HEADLESS:
-        return headless_fetcher.fetch(url, render=RenderMode.HEADLESS)
+        return headless_fetcher.fetch(url, render=RenderMode.HEADLESS,
+                                      wait_for_selector=wait_for_selector)
     return http_fetcher.fetch(url)
 
 

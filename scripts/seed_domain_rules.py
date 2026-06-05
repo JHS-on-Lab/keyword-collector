@@ -52,7 +52,6 @@ _RULES: list[dict] = [
                 "body_css":     ".se-module-text",
                 "published_at": "result.writtenAt",
                 "author":       "result.writer.nickname",
-                "press":        "result.itemName",
             },
             "min_body_len": 5,
         },
@@ -88,10 +87,18 @@ _RULES: list[dict] = [
         "crawl_delay_ms": 2000,
         "rules_enabled": True,
         "updated_by": "domain-analysis",
-        # Next.js App Router. headless 하이드레이션 후 div#ijam_content 에 본문 생성
+        # Next.js App Router + MUI. domcontentloaded 시점에는 React 하이드레이션 미완료.
+        # headless_wait_for 로 div#ijam_content 가 DOM에 나타날 때까지 대기 후 캡처.
+        # author: a.author-item 은 MUI 동적 클래스 없이 안정적.
+        # published_at: span 텍스트가 "입력 YYYY.MM.DD HH:MM" 형태 →
+        #   XPath substring-after 로 날짜 부분만 추출.
         "rules_json": {
-            "title": {"xpath": "//meta[@property='og:title']/@content"},
-            "body":  {"css": "div#ijam_content"},
+            "headless_wait_for": "div#ijam_content",
+            "title":        {"xpath": "//meta[@property='og:title']/@content"},
+            "body":         {"css": "div#ijam_content"},
+            "author":       {"css": "a.author-item"},
+            "published_at": {"xpath": "substring-after((//span[starts-with(., '입력 ') and not(contains(., '수정'))])[1], '입력 ')",
+                             "date_format": "%Y.%m.%d %H:%M"},
             "min_body_len": 100,
         },
     },
@@ -131,6 +138,30 @@ _RULES: list[dict] = [
             "author":       {"css": "strong.aeti_title"},
             "published_at": {"css": "div.aeti_date_entry span.aeti_num",
                              "date_format": "%Y.%m.%d %H:%M"},
+            "min_body_len": 100,
+        },
+    },
+
+    # ── 뉴스1 ──────────────────────────────────────────────────────────────────
+    {
+        "host": "www.news1.kr",
+        "render_mode": "static",
+        "crawl_delay_ms": 1000,
+        "rules_enabled": True,
+        "updated_by": "domain-analysis",
+        # Next.js Pages Router — 정적 HTML 의 __NEXT_DATA__ 에 기사 데이터 임베드.
+        # 본문은 contentArrange 배열에서 type=text 항목의 content 를 이어 붙여 구성.
+        "rules_json": {
+            "next_data": {
+                "root":             "props.pageProps.articleView",
+                "title":            "title",
+                "author":           "author",
+                "published_at":     "published_time",
+                "body_array":       "contentArrange",
+                "body_type_key":    "type",
+                "body_type_value":  "text",
+                "body_content_key": "content",
+            },
             "min_body_len": 100,
         },
     },

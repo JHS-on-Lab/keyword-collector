@@ -31,16 +31,25 @@ pip install -r requirements.txt \
 
 ---
 
-## Playwright 브라우저 설치
+## Playwright 브라우저 설치 (필수)
 
-`pip install` 후 별도로 브라우저 바이너리를 다운로드해야 한다.  
-설치하지 않으면 headless 렌더링 시 `Executable doesn't exist` 오류가 발생한다.
+`pip install -r requirements.txt` 만으로는 브라우저 바이너리가 설치되지 않는다.  
+Playwright는 Python 라이브러리와 브라우저 실행 파일을 분리 배포하며,  
+바이너리는 OS 캐시 디렉터리(`~/Library/Caches/ms-playwright` 등)에 별도 저장된다.
+
+설치하지 않으면 headless 렌더링 시 아래 오류가 발생한다.
+
+```
+playwright._impl._errors.Error: BrowserType.launch: Executable doesn't exist
+```
+
+venv가 활성화된 상태에서 아래 명령을 실행한다.
 
 ```bash
 playwright install chromium
 ```
 
-> venv가 활성화된 상태에서 실행해야 한다.
+> venv를 새로 만들어도 재설치 불필요. 단, Playwright 버전 업그레이드 시에는 재실행해야 한다.
 
 ---
 

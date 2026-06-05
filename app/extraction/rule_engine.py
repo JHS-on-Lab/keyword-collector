@@ -10,7 +10,6 @@ rules_json 형식:
     "title":        {"css": "h1.article-title"},
     "body":         {"css": "div.article-body p"},
     "author":       {"css": "span.byline"},
-    "press":        {"xpath": "//meta[@property='og:site_name']/@content"},
     "published_at": {"css": "span.date", "date_format": "%Y.%m.%d %H:%M"},
     "min_body_len": 10
   }
@@ -24,6 +23,8 @@ rules_json 형식:
   "amp_url"  — 원본 URL 의 경로를 변환해 AMP 페이지를 정적 fetch 한 뒤
                일반 CSS/XPath 규칙으로 추출한다.
                순수 CSR 사이트에 AMP 버전이 있을 때 headless 대신 사용.
+  "next_data" — 정적 HTML 의 <script id="__NEXT_DATA__"> 에 임베드된 JSON 에서 추출한다.
+               Next.js Pages Router 사이트에서 headless 없이 사용 가능.
 
 amp_url 규칙 형식 (최상위에 "amp_url" 키를 두면 이 모드로 동작):
   {
@@ -31,6 +32,21 @@ amp_url 규칙 형식 (최상위에 "amp_url" 키를 두면 이 모드로 동작
     "title":    {"css": "h2.titleline_title_end"},
     "body":     {"css": "div.acem_text"},
     "published_at": {"css": "span.aeti_num", "date_format": "%Y.%m.%d %H:%M"},
+    "min_body_len": 100
+  }
+
+next_data 규칙 형식 (최상위에 "next_data" 키를 두면 이 모드로 동작):
+  {
+    "next_data": {
+      "root":             "props.pageProps.articleView",  // __NEXT_DATA__ 내 기사 객체 경로
+      "title":            "title",
+      "author":           "author",
+      "published_at":     "published_time",               // ISO 8601 자동 파싱
+      "body_array":       "contentArrange",               // 배열 필드
+      "body_type_key":    "type",                         // 배열 항목의 타입 키
+      "body_type_value":  "text",                         // 본문으로 사용할 타입 값
+      "body_content_key": "content"                       // 실제 텍스트가 담긴 키
+    },
     "min_body_len": 100
   }
 
@@ -44,7 +60,6 @@ json_api 규칙 형식 (최상위에 "json_api" 키를 두면 이 모드로 동�
       "body_css":     ".se-module-text",     // body_html 을 파싱할 CSS 셀렉터
       "published_at": "result.writtenAt",    // ISO 8601 자동 파싱
       "author":       "result.writer.nickname",
-      "press":        "result.itemName"
     },
     "min_body_len": 5
   }
@@ -117,6 +132,8 @@ class RuleEngine:
             return self._extract_json_api(url, rules, portal_type, keyword)
         if "amp_url" in rules:
             return self._extract_amp(url, rules, portal_type, keyword)
+        if "next_data" in rules:
+            return self._extract_next_data(url, html, rules, portal_type, keyword)
         return self._extract_html(url, html, rules, portal_type, keyword)
 
     def _extract_html(
@@ -131,7 +148,6 @@ class RuleEngine:
         title  = _apply_rule(html, rules.get("title"))
         body   = _apply_rule(html, rules.get("body"))
         author = _apply_rule(html, rules.get("author")) or None
-        press  = _apply_rule(html, rules.get("press"))  or None
 
         published_at_rule = rules.get("published_at")
         published_at = _parse_date(
@@ -166,7 +182,6 @@ class RuleEngine:
             body=body.strip(),
             published_at=published_at,
             author=author,
-            press=press,
             collected_at=datetime.now(timezone.utc),
             extraction_method="rule:css" if "css" in str(rules) else "rule:xpath",
         )
@@ -204,6 +219,102 @@ class RuleEngine:
             )
 
         return self._extract_html(url, amp_html, rules, portal_type, keyword)
+
+    def _extract_next_data(
+        self,
+        url: str,
+        html: str,
+        rules: dict,
+        portal_type: str,
+        keyword: str,
+    ) -> "Article | ExtractionFailure":
+        """<script id="__NEXT_DATA__"> 임베드 JSON 에서 필드를 추출한다."""
+        import json as _json
+        from selectolax.parser import HTMLParser
+
+        spec = rules["next_data"]
+
+        # __NEXT_DATA__ 파싱
+        try:
+            script = HTMLParser(html).css_first("script#__NEXT_DATA__")
+            if not script:
+                return ExtractionFailure(
+                    url=url,
+                    error_code=ErrorCode.PARSE_ERROR,
+                    error_msg="next_data: __NEXT_DATA__ script not found",
+                    is_permanent=False,
+                )
+            data = _json.loads(script.text())
+        except Exception as exc:
+            return ExtractionFailure(
+                url=url,
+                error_code=ErrorCode.PARSE_ERROR,
+                error_msg=f"next_data: JSON parse failed: {exc}",
+                is_permanent=False,
+            )
+
+        # root 경로로 기사 객체 이동
+        root_path = spec.get("root", "")
+        obj = data
+        if root_path:
+            for key in root_path.split("."):
+                obj = obj.get(key, {}) if isinstance(obj, dict) else {}
+
+        title        = _json_path(obj, spec.get("title", ""))
+        author       = _json_path(obj, spec.get("author", "")) or None
+        published_at = _parse_iso(_json_path(obj, spec.get("published_at", "")))
+
+        # 본문: 배열 필드에서 특정 type 의 content 를 이어 붙인다
+        body = ""
+        body_array_path = spec.get("body_array", "")
+        if body_array_path:
+            items = obj
+            for key in body_array_path.split("."):
+                items = items.get(key, []) if isinstance(items, dict) else []
+            type_key    = spec.get("body_type_key", "type")
+            type_value  = spec.get("body_type_value", "text")
+            content_key = spec.get("body_content_key", "content")
+            parts = [
+                item[content_key]
+                for item in (items if isinstance(items, list) else [])
+                if isinstance(item, dict)
+                and item.get(type_key) == type_value
+                and item.get(content_key)
+            ]
+            body = "\n".join(parts)
+        else:
+            body = _json_path(obj, spec.get("body", ""))
+
+        if not title:
+            return ExtractionFailure(
+                url=url,
+                error_code=ErrorCode.TITLE_EMPTY,
+                error_msg="next_data: empty title",
+                is_permanent=True,
+            )
+
+        min_body = int(rules.get("min_body_len", 100))
+        if not body or len(body) < min_body:
+            return ExtractionFailure(
+                url=url,
+                error_code=ErrorCode.BODY_TOO_SHORT,
+                error_msg=f"next_data: body_len={len(body)} < {min_body}",
+                is_permanent=False,
+            )
+
+        norm = normalize(url)
+        return Article(
+            url=norm,
+            url_hash=url_hash(norm),
+            portal_type=portal_type,
+            keyword=keyword,
+            title=title.strip(),
+            body=body.strip(),
+            published_at=published_at,
+            author=author,
+            collected_at=datetime.now(timezone.utc),
+            extraction_method="rule:next_data",
+        )
 
     def _extract_json_api(
         self,
@@ -259,7 +370,6 @@ class RuleEngine:
         # 점(.) 경로로 JSON 필드 추출
         title        = _json_path(data, spec.get("title", ""))
         author       = _json_path(data, spec.get("author", "")) or None
-        press        = _json_path(data, spec.get("press", ""))  or None
         published_at = _parse_iso(_json_path(data, spec.get("published_at", "")))
 
         # body: body_html → body_css 로 파싱, 없으면 body 직접
@@ -300,7 +410,6 @@ class RuleEngine:
             body=body.strip(),
             published_at=published_at,
             author=author,
-            press=press,
             collected_at=datetime.now(timezone.utc),
             extraction_method="rule:json_api",
         )
@@ -380,6 +489,10 @@ def _extract_xpath(html: str, expression: str) -> str:
     results = tree.xpath(expression)
     if not results:
         return ""
+    # substring-after 등 XPath 스칼라 함수는 문자열을 직접 반환한다.
+    # 이 경우 for 루프로 순회하면 문자 단위로 쪼개지므로 먼저 체크한다.
+    if isinstance(results, str):
+        return results.strip()
     # 속성값은 문자열, 노드는 텍스트로 변환
     texts = []
     for r in results:
