@@ -358,12 +358,14 @@ _UPSERT_SQL = text("""
         (:host, :rules_json, :rules_enabled, 1,
          :render_mode, :crawl_delay_ms, :updated_by)
     ON DUPLICATE KEY UPDATE
-        rules_json     = VALUES(rules_json),
-        rules_enabled  = VALUES(rules_enabled),
-        rules_version  = rules_version + 1,
-        render_mode    = VALUES(render_mode),
-        crawl_delay_ms = VALUES(crawl_delay_ms),
-        updated_by     = VALUES(updated_by)
+        rules_json        = VALUES(rules_json),
+        rules_enabled     = VALUES(rules_enabled),
+        rules_version     = VALUES(rules_version),
+        render_mode       = VALUES(render_mode),
+        crawl_delay_ms    = VALUES(crawl_delay_ms),
+        updated_by        = VALUES(updated_by),
+        cooldown_until    = NULL,
+        recent_fail_count = 0
 """)
 
 
@@ -372,21 +374,25 @@ def main() -> None:
 
     print(f"삽입 대상: {len(_RULES)}개 도메인")
 
+    inserted = updated = 0
     with db_context() as engine:
         with engine.begin() as conn:
             for rule in _RULES:
                 rules_json = rule.get("rules_json")
-                conn.execute(_UPSERT_SQL, {
-                    "host":          rule["host"],
-                    "rules_json":    json.dumps(rules_json, ensure_ascii=False) if rules_json else None,
-                    "rules_enabled": rule.get("rules_enabled", True),
-                    "render_mode":   rule.get("render_mode"),
-                    "crawl_delay_ms":rule.get("crawl_delay_ms"),
-                    "updated_by":    rule.get("updated_by", "seed"),
+                result = conn.execute(_UPSERT_SQL, {
+                    "host":           rule["host"],
+                    "rules_json":     json.dumps(rules_json, ensure_ascii=False) if rules_json else None,
+                    "rules_enabled":  rule.get("rules_enabled", True),
+                    "render_mode":    rule.get("render_mode"),
+                    "crawl_delay_ms": rule.get("crawl_delay_ms"),
+                    "updated_by":     rule.get("updated_by", "seed"),
                 })
-                print(f"  upserted: {rule['host']}")
+                if result.rowcount == 1:
+                    inserted += 1
+                else:
+                    updated += 1
 
-    print("완료.")
+    print(f"완료: INSERT {inserted}건, UPDATE {updated}건 (총 {inserted + updated}건)")
 
 
 if __name__ == "__main__":
