@@ -73,8 +73,9 @@ ENV_FILE="${PROJECT_ROOT}/.env.${APP_ENV}"
 # 볼륨 마운트 경로: 컨테이너 밖 호스트 서버에 로그와 출력물을 저장한다.
 #   컨테이너가 재시작되거나 삭제돼도 데이터가 보존된다.
 #   ~/ = 현재 사용자의 홈 디렉토리
-LOG_DIR="${HOME}/logs/keyword-collector"
-OUTPUT_DIR="${HOME}/output/keyword-collector"
+RUN_AS_USER="sysadmin01"
+LOG_DIR="/home/${RUN_AS_USER}/logs/keyword-collector"
+OUTPUT_DIR="/home/${RUN_AS_USER}/output/keyword-collector"
 
 # ----------------------------------------------------------------
 # 환경 설정 파일 확인
@@ -132,6 +133,7 @@ echo ""
 docker run \
     --detach \
     --name "${CONTAINER_NAME}" \
+    --user "${RUN_AS_USER}" \
     \
     `# 컨테이너가 비정상 종료되면 자동으로 재시작한다.` \
     `# unless-stopped: 사용자가 직접 docker stop 한 경우에는 재시작하지 않는다.` \
