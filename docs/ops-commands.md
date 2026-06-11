@@ -5,7 +5,7 @@
 ```
 Discovery (발견)          Extraction (추출)
 ────────────────         ────────────────────
-포털 검색 페이지 스크랩   article_url 큐에서 꺼내
+소스 검색 페이지 스크랩   article_url 큐에서 꺼내
   → article_url 에         → 본문 페이지 HTTP 요청
     URL 적재                → 제목·본문 파싱
                             → JSONL 저장
@@ -21,29 +21,29 @@ Discovery (발견)          Extraction (추출)
 ### Discovery (발견)
 
 ```bash
-# 포털별 독립 실행 (권장 — 포털마다 차단 양상이 다름)
-python -m app --role discovery --portal naver_news
-python -m app --role discovery --portal naver_stock
-python -m app --role discovery --portal daum_news
-python -m app --role discovery --portal google_news
-python -m app --role discovery --portal baidu_news
+# 소스별 독립 실행 (권장 — 소스마다 차단 양상이 다름)
+python -m app --role discovery --source naver_news
+python -m app --role discovery --source naver_stock
+python -m app --role discovery --source daum_news
+python -m app --role discovery --source google_news
+python -m app --role discovery --source baidu_news
 
-# 단일 프로세스로 전체 포털 처리 (소규모 운영)
-python -m app --role discovery --portal all
+# 단일 프로세스로 전체 소스 처리 (소규모 운영)
+python -m app --role discovery --source all
 
-# 워커 ID 명시 (같은 포털 여러 개 띄울 때)
-python -m app --role discovery --portal naver_news --worker-id disc-naver-1
-python -m app --role discovery --portal naver_news --worker-id disc-naver-2
+# 워커 ID 명시 (같은 소스 여러 개 띄울 때)
+python -m app --role discovery --source naver_news --worker-id disc-naver-1
+python -m app --role discovery --source naver_news --worker-id disc-naver-2
 ```
 
 ### Extraction (추출)
 
 ```bash
-# 전체 포털 URL 처리 (기본)
+# 전체 소스 URL 처리 (기본)
 python -m app --role extraction
 
-# 특정 포털 URL 만 처리
-python -m app --role extraction --portal naver_news
+# 특정 소스 URL 만 처리
+python -m app --role extraction --source naver_news
 
 # 복수 추출 워커 (worker-id 구분 필수)
 python -m app --role extraction --worker-id ext-1
@@ -59,20 +59,20 @@ python -m app --role extraction --worker-id ext-3
 # 특정 URL 추출 테스트 — 파일 미저장, 결과만 출력
 python scripts/run_extraction.py --url "https://finance.naver.com/item/board_read.naver?code=000660&nid=421731371" --dry-run
 
-# 특정 URL 추출 + portal/keyword 컨텍스트 지정
-python scripts/run_extraction.py --url "https://..." --portal NAVER_STOCK --keyword 000660
+# 특정 URL 추출 + source/keyword 컨텍스트 지정
+python scripts/run_extraction.py --url "https://..." --source NAVER_STOCK --keyword 000660
 
 # 특정 URL 추출 + 파일 저장
-python scripts/run_extraction.py --url "https://..." --portal NAVER_NEWS --keyword 삼성전자
+python scripts/run_extraction.py --url "https://..." --source NAVER_NEWS --keyword 삼성전자
 
 # DB 에서 discovered URL 하나 꺼내 추출
 python scripts/run_extraction.py
 
-# 특정 포털 URL 만 꺼내 추출
-python scripts/run_extraction.py --portal NAVER_NEWS
+# 특정 소스 URL 만 꺼내 추출
+python scripts/run_extraction.py --source NAVER_NEWS
 
 # DB 모드 dry-run (URL 을 꺼내 결과만 출력. 파일 미저장. 단 DB 에 status=extracting 으로 임시 기록됨 — reaper 가 자동 복구)
-python scripts/run_extraction.py --portal NAVER_STOCK --dry-run
+python scripts/run_extraction.py --source NAVER_STOCK --dry-run
 ```
 
 ---
@@ -81,19 +81,19 @@ python scripts/run_extraction.py --portal NAVER_STOCK --dry-run
 
 ```bash
 # 특정 키워드 테스트 — DB 미기록, 네트워크만
-python scripts/run_discovery.py --portal naver_news --keyword 삼성전자 --dry-run
+python scripts/run_discovery.py --source naver_news --keyword 삼성전자 --dry-run
 
 # 특정 키워드 실행 + DB 저장 (keyword 테이블에 등록된 키워드만 허용)
-python scripts/run_discovery.py --portal naver_news --keyword 삼성전자
+python scripts/run_discovery.py --source naver_news --keyword 삼성전자
 
 # DB 에서 due 키워드 자동 선택 + 실행
-python scripts/run_discovery.py --portal naver_news
+python scripts/run_discovery.py --source naver_news
 
 # DB 에서 due 키워드 선택 — URL 출력만, DB 변경 없음
-python scripts/run_discovery.py --portal naver_news --dry-run
+python scripts/run_discovery.py --source naver_news --dry-run
 
 # 페이지 수 제한 (기본값 초과 시)
-python scripts/run_discovery.py --portal naver_news --keyword 삼성전자 --max-pages 2
+python scripts/run_discovery.py --source naver_news --keyword 삼성전자 --max-pages 2
 ```
 
 ---
@@ -170,7 +170,7 @@ SOLR_URL=http://localhost:8983/solr/news
 SOLR_BATCH_SIZE=100          # 버퍼 flush 단위
 SOLR_COMMIT_WITHIN_MS=5000   # flush 후 Solr 커밋 완료 제한(ms). commit=true 대신 사용해 병목 방지
 
-# 포털별 최대 페이지 수
+# 소스별 최대 페이지 수
 NAVER_MAX_PAGES=10
 DAUM_MAX_PAGES=10
 DAUM_NEWS_ALL=true           # true=전체 언론사(기본), false=뉴스제휴 언론사만
@@ -196,25 +196,25 @@ HEARTBEAT_INTERVAL_SECONDS=60
 
 ```yaml
 services:
-  # 포털별 발견 워커
+  # 소스별 발견 워커
   discover-naver-news:
     image: keyword-crawler:latest
-    command: ["--role", "discovery", "--portal", "naver_news"]
+    command: ["--role", "discovery", "--source", "naver_news"]
     env_file: .env
 
   discover-naver-stock:
     image: keyword-crawler:latest
-    command: ["--role", "discovery", "--portal", "naver_stock"]
+    command: ["--role", "discovery", "--source", "naver_stock"]
     env_file: .env
 
   discover-daum:
     image: keyword-crawler:latest
-    command: ["--role", "discovery", "--portal", "daum_news"]
+    command: ["--role", "discovery", "--source", "daum_news"]
     env_file: .env
 
   discover-google:
     image: keyword-crawler:latest
-    command: ["--role", "discovery", "--portal", "google_news"]
+    command: ["--role", "discovery", "--source", "google_news"]
     env_file: .env
 
   # 추출 워커 (병렬 확장)
@@ -241,21 +241,21 @@ services:
 
 ```sql
 -- 상태별 현황
-SELECT portal_type, status, COUNT(*) AS cnt
+SELECT source_type, status, COUNT(*) AS cnt
 FROM t_article_url
-GROUP BY portal_type, status
-ORDER BY portal_type, status;
+GROUP BY source_type, status
+ORDER BY source_type, status;
 
--- failed/dead URL 재투입 (특정 포털)
+-- failed/dead URL 재투입 (특정 소스)
 UPDATE t_article_url
 SET status = 'discovered', next_retry_at = NOW(), attempt_count = 0
 WHERE status IN ('failed_permanent', 'dead')
-  AND portal_type = 'NAVER_NEWS';
+  AND source_type = 'NAVER_NEWS';
 
 -- due 키워드 현황
-SELECT portal_type, COUNT(*) AS total,
+SELECT source_type, COUNT(*) AS total,
        SUM(enabled = 1) AS enabled,
        SUM(next_discover_at IS NULL OR next_discover_at <= NOW()) AS due_now
 FROM t_keyword
-GROUP BY portal_type;
+GROUP BY source_type;
 ```

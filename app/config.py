@@ -67,7 +67,7 @@ GOOGLE_DISCOVERY_MODE   = _env("GOOGLE_DISCOVERY_MODE", "search")
 # false 로 설정하면 뉴스제휴 언론사만 수집 (SHOW_DNS=1)
 DAUM_NEWS_ALL         = _env_bool("DAUM_NEWS_ALL", True)
 
-# 포털별 발견 최대 페이지 수 (키워드 1회 실행당)
+# 소스별 발견 최대 페이지 수 (키워드 1회 실행당)
 NAVER_MAX_PAGES       = _env_int("NAVER_MAX_PAGES",       10)
 DAUM_MAX_PAGES        = _env_int("DAUM_MAX_PAGES",        10)
 GOOGLE_MAX_PAGES      = _env_int("GOOGLE_MAX_PAGES",       5)

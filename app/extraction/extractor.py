@@ -26,7 +26,7 @@ class DefaultExtractor:
         url: str,
         html: str,
         host: str,
-        portal_type: str = "",
+        source_type: str = "",
         keyword: str = "",
     ) -> Article | ExtractionFailure:
         # 1단계: 도메인 전용 규칙 시도
@@ -36,7 +36,7 @@ class DefaultExtractor:
             if rules:
                 result = self._engine.extract(
                     url=url, html=html, host=host,
-                    rules=rules, portal_type=portal_type, keyword=keyword,
+                    rules=rules, source_type=source_type, keyword=keyword,
                 )
                 if isinstance(result, Article):
                     return result
@@ -47,5 +47,5 @@ class DefaultExtractor:
         # 2단계: 라이브러리 체인 폴백
         return self._chain.extract(
             url=url, html=html, host=host,
-            portal_type=portal_type, keyword=keyword,
+            source_type=source_type, keyword=keyword,
         )

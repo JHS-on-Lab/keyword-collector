@@ -126,24 +126,24 @@ class RuleEngine:
         html: str,
         host: str,
         rules: dict,
-        portal_type: str = "",
+        source_type: str = "",
         keyword: str = "",
     ) -> Article | ExtractionFailure:
         """rules_json 으로 HTML(또는 JSON API)에서 필드를 추출한다."""
         if "json_api" in rules:
-            return self._extract_json_api(url, rules, portal_type, keyword)
+            return self._extract_json_api(url, rules, source_type, keyword)
         if "amp_url" in rules:
-            return self._extract_amp(url, rules, portal_type, keyword)
+            return self._extract_amp(url, rules, source_type, keyword)
         if "next_data" in rules:
-            return self._extract_next_data(url, html, rules, portal_type, keyword)
-        return self._extract_html(url, html, rules, portal_type, keyword)
+            return self._extract_next_data(url, html, rules, source_type, keyword)
+        return self._extract_html(url, html, rules, source_type, keyword)
 
     def _extract_html(
         self,
         url: str,
         html: str,
         rules: dict,
-        portal_type: str,
+        source_type: str,
         keyword: str,
     ) -> Article | ExtractionFailure:
         """CSS/XPath 규칙으로 HTML 에서 필드를 추출한다."""
@@ -182,7 +182,7 @@ class RuleEngine:
         return Article(
             url=norm,
             url_hash=url_hash(norm),
-            portal_type=portal_type,
+            source_type=source_type,
             keyword=keyword,
             title=title.strip(),
             body=body.strip(),
@@ -196,7 +196,7 @@ class RuleEngine:
         self,
         url: str,
         rules: dict,
-        portal_type: str,
+        source_type: str,
         keyword: str,
     ) -> Article | ExtractionFailure:
         """AMP URL 로 변환해 정적 fetch 후 CSS/XPath 규칙으로 추출한다."""
@@ -224,14 +224,14 @@ class RuleEngine:
                 is_permanent=False,
             )
 
-        return self._extract_html(url, amp_html, rules, portal_type, keyword)
+        return self._extract_html(url, amp_html, rules, source_type, keyword)
 
     def _extract_next_data(
         self,
         url: str,
         html: str,
         rules: dict,
-        portal_type: str,
+        source_type: str,
         keyword: str,
     ) -> "Article | ExtractionFailure":
         """<script id="__NEXT_DATA__"> 임베드 JSON 에서 필드를 추출한다."""
@@ -309,7 +309,7 @@ class RuleEngine:
         return Article(
             url=norm,
             url_hash=url_hash(norm),
-            portal_type=portal_type,
+            source_type=source_type,
             keyword=keyword,
             title=title.strip(),
             body=body.strip(),
@@ -323,7 +323,7 @@ class RuleEngine:
         self,
         url: str,
         rules: dict,
-        portal_type: str,
+        source_type: str,
         keyword: str,
     ) -> Article | ExtractionFailure:
         """JSON API 를 직접 호출해 Article 을 추출한다."""
@@ -406,7 +406,7 @@ class RuleEngine:
         return Article(
             url=norm,
             url_hash=url_hash(norm),
-            portal_type=portal_type,
+            source_type=source_type,
             keyword=keyword,
             title=title.strip(),
             body=body.strip(),

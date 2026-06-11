@@ -15,7 +15,7 @@ KST = timezone(timedelta(hours=9))
 @dataclass
 class DiscoveryLog:
     keyword_id:    int
-    portal_type:   str
+    source_type:   str
     worker_id:     str
     started_at:    datetime
     duration_ms:   int
@@ -27,7 +27,7 @@ class DiscoveryLog:
 
 @dataclass
 class ExtractionLog:
-    portal_type:    str
+    source_type:    str
     worker_id:      str
     started_at:     datetime
     duration_ms:    int
@@ -46,12 +46,12 @@ class CollectionLogRepo:
             conn.execute(
                 text("""
                     INSERT INTO t_collection_log
-                        (run_type, run_date, keyword_id, portal_type, worker_id,
+                        (run_type, run_date, keyword_id, source_type, worker_id,
                          started_at, duration_ms,
                          urls_found, urls_inserted, urls_skipped,
                          error_msg)
                     VALUES
-                        ('discovery', :run_date, :kid, :portal, :worker,
+                        ('discovery', :run_date, :kid, :source, :worker,
                          :started_at, :duration_ms,
                          :urls_found, :urls_inserted, :urls_skipped,
                          :error_msg)
@@ -59,7 +59,7 @@ class CollectionLogRepo:
                 {
                     "run_date":      run_date,
                     "kid":           log.keyword_id,
-                    "portal":        log.portal_type,
+                    "source":        log.source_type,
                     "worker":        log.worker_id,
                     "started_at":    log.started_at,
                     "duration_ms":   log.duration_ms,
@@ -76,17 +76,17 @@ class CollectionLogRepo:
             conn.execute(
                 text("""
                     INSERT INTO t_collection_log
-                        (run_type, run_date, portal_type, worker_id,
+                        (run_type, run_date, source_type, worker_id,
                          started_at, duration_ms,
                          urls_attempted, urls_success, urls_failed)
                     VALUES
-                        ('extraction', :run_date, :portal, :worker,
+                        ('extraction', :run_date, :source, :worker,
                          :started_at, :duration_ms,
                          :urls_attempted, :urls_success, :urls_failed)
                 """),
                 {
                     "run_date":      run_date,
-                    "portal":        log.portal_type,
+                    "source":        log.source_type,
                     "worker":        log.worker_id,
                     "started_at":    log.started_at,
                     "duration_ms":   log.duration_ms,
@@ -118,7 +118,7 @@ class CollectionLogRepo:
                 text("""
                     SELECT
                         cl.run_type,
-                        cl.portal_type,
+                        cl.source_type,
                         k.keyword,
                         cl.started_at,
                         cl.duration_ms,

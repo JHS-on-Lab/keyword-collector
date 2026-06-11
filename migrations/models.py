@@ -23,7 +23,7 @@ keyword = Table(
     Column("id",               BigInteger,  primary_key=True, autoincrement=True),
     Column("keyword",          String(255), nullable=False,
            comment="검색어 또는 식별자. NAVER_STOCK 은 종목코드 (예: 005930)"),
-    Column("portal_type",      String(20),  nullable=False,
+    Column("source_type",      String(20),  nullable=False,
            comment="NAVER_NEWS | DAUM_NEWS | GOOGLE_NEWS | BAIDU_NEWS | NAVER_STOCK"),
     Column("display_name",     String(100), nullable=True,
            comment="사람이 읽기 쉬운 라벨. NAVER_STOCK: 종목명, GOOGLE: 다국어 키워드 설명 등"),
@@ -41,7 +41,7 @@ keyword = Table(
            comment="다음 수집 예정 시각(UTC). NULL 또는 과거이면 즉시 수집 대상"),
     Column("retry_pending",    SmallInteger(), nullable=False, server_default="0",
            comment="다음 수집 시 full scan 필요 여부. 수집 중단(403 등) 시 1, 성공 완료 시 0"),
-    UniqueConstraint("keyword", "portal_type", name="uq_keyword_portal"),
+    UniqueConstraint("keyword", "source_type", name="uq_keyword_portal"),
     mysql_engine="InnoDB",
     mysql_charset="utf8mb4",
     mysql_collate="utf8mb4_unicode_ci",
@@ -60,7 +60,7 @@ article_url = Table(
     Column("url_hash",         String(64),  nullable=False),          # sha256 hex
     Column("host",             String(255), nullable=False),
     Column("keyword_id",       BigInteger,  nullable=True),           # FK — 무결성은 앱 레이어
-    Column("portal_type",      String(20),  nullable=False),
+    Column("source_type",      String(20),  nullable=False),
     Column("status",           String(30),  nullable=False, default="discovered", index=True),
     Column("attempt_count",    Integer,     nullable=False, default=0),
     Column("last_error_code",  String(50),  nullable=True),
@@ -127,7 +127,7 @@ collection_log = Table(
     Column("run_type",       String(20),  nullable=False),           # discovery | extraction
     Column("run_date",       Date,        nullable=False),           # KST 기준 일자 (일별 롤업)
     Column("keyword_id",     BigInteger,  nullable=True),            # discovery만 해당
-    Column("portal_type",    String(20),  nullable=False),
+    Column("source_type",    String(20),  nullable=False),
     Column("worker_id",      String(100), nullable=False),
     Column("started_at",     DateTime,    nullable=False),
     Column("duration_ms",    Integer,     nullable=False),

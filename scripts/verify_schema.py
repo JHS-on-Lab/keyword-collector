@@ -15,12 +15,12 @@ EXPECTED_TABLES = {"t_keyword", "t_article_url", "t_domain", "t_collection_log",
 
 EXPECTED_COLUMNS = {
     "t_keyword": {
-        "id", "keyword", "portal_type", "interval_seconds",
+        "id", "keyword", "source_type", "interval_seconds",
         "next_discover_at", "retry_pending",
         "enabled", "priority", "display_name", "disabled_reason",
     },
     "t_article_url": {
-        "id", "url", "url_hash", "host", "keyword_id", "portal_type",
+        "id", "url", "url_hash", "host", "keyword_id", "source_type",
         "status", "attempt_count", "last_error_code", "last_error_msg",
         "next_retry_at", "claimed_at", "claimed_by", "is_manual", "priority",
         "extraction_method", "collected_date", "created_at", "updated_at",
@@ -32,7 +32,7 @@ EXPECTED_COLUMNS = {
         "updated_at", "updated_by",
     },
     "t_collection_log": {
-        "id", "run_type", "run_date", "keyword_id", "portal_type", "worker_id",
+        "id", "run_type", "run_date", "keyword_id", "source_type", "worker_id",
         "started_at", "duration_ms",
         "urls_found", "urls_inserted", "urls_skipped",
         "urls_attempted", "urls_success", "urls_failed",

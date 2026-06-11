@@ -3,7 +3,7 @@
 
 전체 흐름:
   keyword 테이블에서 수집할 키워드 꺼내기
-    → 포털 어댑터로 검색 결과 페이지 스크래핑
+    → 소스 어댑터로 검색 결과 페이지 스크래핑
     → 발견한 URL 을 article_url 테이블에 저장
     → 결과를 collection_log 에 기록
     → 처리할 키워드 없으면 60초 대기 후 반복
@@ -43,7 +43,7 @@ _403_SLEEP_SEC   = 60   # 403 후 다음 키워드 요청 전 IP 레벨 냉각
 _ERROR_SLEEP_SEC = 10   # 그 외 예외 후 빠른 루프 방지
 
 
-def run_discovery_loop(portal: str, worker_id: str) -> None:
+def run_discovery_loop(source: str, worker_id: str) -> None:
     """발견 워커 메인 루프. __main__.py에서 호출."""
     logger.info(
         "discovery loop started",
@@ -52,12 +52,11 @@ def run_discovery_loop(portal: str, worker_id: str) -> None:
 
     # adapter 는 루프 레벨에서 한 번 생성해 키워드마다 재사용한다.
     # UCGoogleNewsAdapter 처럼 브라우저를 초기화하는 경우 매 키워드마다 재생성하면 낭비가 크다.
-    adapter = make_adapter(portal) if portal.upper() != "ALL" else None
+    adapter = make_adapter(source) if source.upper() != "ALL" else None
 
     heartbeat_interval = config.HEARTBEAT_INTERVAL_SECONDS
     last_heartbeat = time.monotonic()
     processed = 0
-
 
     with db_context() as engine:
         kw_repo   = KeywordRepo(engine)
@@ -76,7 +75,7 @@ def run_discovery_loop(portal: str, worker_id: str) -> None:
                     _healthcheck.write()
 
                 try:
-                    kw = kw_repo.claim_next(portal=portal, worker_id=worker_id)
+                    kw = kw_repo.claim_next(source=source, worker_id=worker_id)
                 except Exception:
                     logger.exception(
                         f"claim_next failed, sleeping {_ERROR_SLEEP_SEC}s",
@@ -87,7 +86,7 @@ def run_discovery_loop(portal: str, worker_id: str) -> None:
 
                 if kw is None:
                     logger.debug(
-                        f"no due keywords for portal={portal}, sleeping {_IDLE_SLEEP_SEC}s",
+                        f"no due keywords for source={source}, sleeping {_IDLE_SLEEP_SEC}s",
                         extra={"phase": "idle", "worker_id": worker_id, "component": "dispatcher"},
                     )
                     time.sleep(_IDLE_SLEEP_SEC)
@@ -109,11 +108,11 @@ def _run_one(
     adapter=None,
 ) -> None:
     keyword    = kw["keyword"]
-    portal     = kw["portal_type"]
+    source     = kw["source_type"]
     keyword_id = kw["id"]
 
     extra = {"phase": "discover", "worker_id": worker_id, "keyword_id": str(keyword_id), "component": "dispatcher"}
-    logger.info(f"start keyword='{keyword}' portal={portal}", extra=extra)
+    logger.info(f"start keyword='{keyword}' source={source}", extra=extra)
 
     started_at   = datetime.now(KST)
     started_mono = time.monotonic()
@@ -121,7 +120,7 @@ def _run_one(
 
     try:
         if adapter is None:
-            adapter = make_adapter(portal)
+            adapter = make_adapter(source)
 
         # retry_pending=True 면 이전 수집이 중단된 적 있음 (재시도 모드)
         # → 항상 1페이지부터 full scan: 대기 시간 중 올라온 신규 기사 누락 방지 + 미수집 구간 완성
@@ -138,7 +137,7 @@ def _run_one(
 
         while True:
             result = adapter.discover(keyword, cursor)
-            ins, skp = url_repo.bulk_insert_discovered(result.urls, keyword_id, portal)
+            ins, skp = url_repo.bulk_insert_discovered(result.urls, keyword_id, source)
             total_found += len(result.urls)
             total_ins   += ins
             total_skp   += skp
@@ -165,7 +164,7 @@ def _run_one(
 
         log_repo.insert_discovery(DiscoveryLog(
             keyword_id    = keyword_id,
-            portal_type   = portal,
+            source_type   = source,
             worker_id     = worker_id,
             started_at    = started_at,
             duration_ms   = duration_ms,
@@ -201,7 +200,7 @@ def _run_one(
                 )
         else:
             logger.exception(
-                f"error keyword='{keyword}' portal={portal}",
+                f"error keyword='{keyword}' source={source}",
                 extra={**extra, "phase": "discover_error"},
             )
 
@@ -213,7 +212,7 @@ def _run_one(
         try:
             log_repo.insert_discovery(DiscoveryLog(
                 keyword_id    = keyword_id,
-                portal_type   = portal,
+                source_type   = source,
                 worker_id     = worker_id,
                 started_at    = started_at,
                 duration_ms   = duration_ms,

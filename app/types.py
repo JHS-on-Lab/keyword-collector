@@ -14,7 +14,7 @@ from enum import Enum
 # 상수 / Enum
 # ---------------------------------------------------------------------------
 
-class PortalType(str, Enum):
+class SourceType(str, Enum):
     NAVER_NEWS  = "NAVER_NEWS"
     DAUM_NEWS   = "DAUM_NEWS"
     GOOGLE_NEWS = "GOOGLE_NEWS"
@@ -69,7 +69,7 @@ class DiscoverResult:
 class Article:
     url: str
     url_hash: str
-    portal_type: str
+    source_type: str
     keyword: str
     title: str
     body: str

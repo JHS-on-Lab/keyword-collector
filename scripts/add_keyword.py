@@ -3,20 +3,20 @@
 
 사용법:
   # 단건 등록
-  python scripts/add_keyword.py --portal naver_news --keyword 삼성전자
+  python scripts/add_keyword.py --source naver_news --keyword 삼성전자
 
   # 표시명·우선순위·수집주기 지정
-  python scripts/add_keyword.py --portal naver_stock --keyword 005930 --display-name 삼성전자 --priority 10 --interval 3600
+  python scripts/add_keyword.py --source naver_stock --keyword 005930 --display-name 삼성전자 --priority 10 --interval 3600
 
   # 여러 키워드를 한 번에 (공백 구분)
-  python scripts/add_keyword.py --portal naver_news --keyword 삼성전자 LG전자 현대차
+  python scripts/add_keyword.py --source naver_news --keyword 삼성전자 LG전자 현대차
 
   # 파일에서 읽기 (한 줄에 키워드 하나)
-  python scripts/add_keyword.py --portal daum_news --file keywords.txt
+  python scripts/add_keyword.py --source daum_news --file keywords.txt
 
   # 현재 등록된 키워드 목록 확인
   python scripts/add_keyword.py --list
-  python scripts/add_keyword.py --list --portal naver_news
+  python scripts/add_keyword.py --list --source naver_news
 """
 
 from __future__ import annotations
@@ -33,21 +33,21 @@ from app.repository.db import db_context
 _PORTALS = ("naver_news", "daum_news", "google_news", "baidu_news", "naver_stock")
 
 
-def _insert(conn, keyword: str, portal_type: str, display_name: str | None,
+def _insert(conn, keyword: str, source_type: str, display_name: str | None,
             priority: int, interval_seconds: int) -> str:
     """중복이면 SKIP, 아니면 INSERT. 결과 문자열 반환."""
     result = conn.execute(
         text("""
             INSERT INTO t_keyword
-                (keyword, portal_type, display_name, enabled, priority, interval_seconds)
+                (keyword, source_type, display_name, enabled, priority, interval_seconds)
             VALUES
-                (:kw, :portal, :display_name, 1, :priority, :interval)
+                (:kw, :source, :display_name, 1, :priority, :interval)
             ON DUPLICATE KEY UPDATE
                 id = id
         """),
         {
             "kw":           keyword,
-            "portal":       portal_type.upper(),
+            "source":       source_type.upper(),
             "display_name": display_name,
             "priority":     priority,
             "interval":     interval_seconds,
@@ -57,17 +57,17 @@ def _insert(conn, keyword: str, portal_type: str, display_name: str | None,
     return "추가" if result.rowcount == 1 else "중복(스킵)"
 
 
-def _list(engine, portal: str | None) -> None:
-    portal_filter = "" if not portal else f"WHERE k.portal_type = '{portal.upper()}'"
+def _list(engine, source: str | None) -> None:
+    source_filter = "" if not source else f"WHERE k.source_type = '{source.upper()}'"
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT k.id, k.portal_type, k.keyword, k.display_name,
+                SELECT k.id, k.source_type, k.keyword, k.display_name,
                        k.enabled, k.priority, k.interval_seconds,
                        k.next_discover_at
                 FROM t_keyword k
-                {portal_filter}
-                ORDER BY k.portal_type, k.priority DESC, k.keyword
+                {source_filter}
+                ORDER BY k.source_type, k.priority DESC, k.keyword
             """)
         ).fetchall()
 
@@ -75,19 +75,19 @@ def _list(engine, portal: str | None) -> None:
         print("등록된 키워드가 없습니다.")
         return
 
-    print(f"{'ID':>6}  {'포털':<14}  {'키워드':<20}  {'표시명':<20}  {'활성':>4}  {'우선순위':>6}  {'주기(초)':>8}")
+    print(f"{'ID':>6}  {'소스':<14}  {'키워드':<20}  {'표시명':<20}  {'활성':>4}  {'우선순위':>6}  {'주기(초)':>8}")
     print("-" * 90)
     for r in rows:
         enabled = "O" if r.enabled else "X"
         display = r.display_name or ""
-        print(f"{r.id:>6}  {r.portal_type:<14}  {r.keyword:<20}  {display:<20}  {enabled:>4}  {r.priority:>6}  {r.interval_seconds:>8}")
+        print(f"{r.id:>6}  {r.source_type:<14}  {r.keyword:<20}  {display:<20}  {enabled:>4}  {r.priority:>6}  {r.interval_seconds:>8}")
     print(f"\n총 {len(rows)}개")
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description="t_keyword 테이블 키워드 등록")
-    p.add_argument("--portal",       choices=_PORTALS, metavar="PORTAL",
-                   help=f"포털 종류: {' | '.join(_PORTALS)}")
+    p.add_argument("--source",       choices=_PORTALS, metavar="PORTAL",
+                   help=f"소스 종류: {' | '.join(_PORTALS)}")
     p.add_argument("--keyword",      nargs="+", metavar="KW",
                    help="등록할 키워드 (복수 가능)")
     p.add_argument("--file",         metavar="FILE",
@@ -104,11 +104,11 @@ def main() -> None:
 
     if args.list:
         with db_context() as engine:
-            _list(engine, args.portal)
+            _list(engine, args.source)
         return
 
-    if not args.portal:
-        p.error("--portal 은 필수입니다.")
+    if not args.source:
+        p.error("--source 은 필수입니다.")
 
     keywords: list[str] = []
     if args.keyword:
@@ -130,11 +130,11 @@ def main() -> None:
         with engine.begin() as conn:
             for kw in keywords:
                 status = _insert(
-                    conn, kw, args.portal,
+                    conn, kw, args.source,
                     args.display_name if len(keywords) == 1 else None,
                     args.priority, args.interval,
                 )
-                print(f"  [{status}] {args.portal.upper()} / {kw}")
+                print(f"  [{status}] {args.source.upper()} / {kw}")
 
 
 if __name__ == "__main__":

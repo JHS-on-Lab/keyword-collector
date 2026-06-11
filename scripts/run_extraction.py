@@ -6,13 +6,13 @@
   python scripts/run_extraction.py --url "https://finance.naver.com/item/board_read.naver?code=000660&nid=421731371" --dry-run
 
   # 특정 URL 추출 + 파일 저장
-  python scripts/run_extraction.py --url "https://..." --portal NAVER_STOCK --keyword 000660
+  python scripts/run_extraction.py --url "https://..." --source NAVER_STOCK --keyword 000660
 
   # DB 에서 discovered URL 하나 꺼내 추출
   python scripts/run_extraction.py
 
-  # 특정 포털 URL 만 꺼내 추출
-  python scripts/run_extraction.py --portal NAVER_NEWS
+  # 특정 소스 URL 만 꺼내 추출
+  python scripts/run_extraction.py --source NAVER_NEWS
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from app import config
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="추출 단계 수동 실행")
     p.add_argument("--url",      default=None, help="직접 지정 URL (생략 시 DB 에서 꺼냄)")
-    p.add_argument("--portal",   default=None, help="포털 타입 (예: NAVER_STOCK)")
+    p.add_argument("--source",   default=None, help="소스 타입 (예: NAVER_STOCK)")
     p.add_argument("--keyword",  default="",   help="키워드 컨텍스트 (기본: 빈 문자열)")
     p.add_argument("--dry-run",  action="store_true", help="파일 미저장, 결과만 출력")
     p.add_argument("--worker-id", default="script", help="워커 식별자 (기본: script)")
@@ -72,7 +72,7 @@ def _run_url_mode(args: argparse.Namespace) -> None:
 
     print(f"URL    : {url}")
     print(f"host   : {host}")
-    print(f"portal : {args.portal or '(미지정)'}")
+    print(f"source : {args.source or '(미지정)'}")
     print(f"keyword: {args.keyword or '(없음)'}")
     print(f"mode   : {'dry-run' if args.dry_run else '파일 저장'}\n")
 
@@ -116,7 +116,7 @@ def _run_url_mode(args: argparse.Namespace) -> None:
             url=fr.url,
             html=fr.html,
             host=host,
-            portal_type=args.portal or "",
+            source_type=args.source or "",
             keyword=args.keyword,
         )
 
@@ -160,21 +160,21 @@ def _run_db_mode(args: argparse.Namespace) -> None:
 
     try:
         url_repo = ArticleUrlRepo(engine)
-        portal_filter = args.portal.upper() if args.portal else None
-        item = url_repo.claim_next(worker_id=args.worker_id, portal=portal_filter)
+        source_filter = args.source.upper() if args.source else None
+        item = url_repo.claim_next(worker_id=args.worker_id, source=source_filter)
 
         if item is None:
-            print(f"처리할 discovered URL 없음 (portal={args.portal or 'all'})")
+            print(f"처리할 discovered URL 없음 (source={args.source or 'all'})")
             return
 
         url     = item["url"]
         host    = item["host"]
-        portal  = item["portal_type"]
+        source  = item["source_type"]
         keyword = item.get("keyword", "")
 
         print(f"URL    : {url}")
         print(f"host   : {host}")
-        print(f"portal : {portal}")
+        print(f"source : {source}")
         print(f"id     : {item['id']}\n")
 
         domain = domain_repo.get(host)
@@ -203,7 +203,7 @@ def _run_db_mode(args: argparse.Namespace) -> None:
         print("=== Extract ===")
         result = extractor.extract(
             url=fr.url, html=fr.html, host=host,
-            portal_type=portal, keyword=keyword,
+            source_type=source, keyword=keyword,
         )
 
         if isinstance(result, ExtractionFailure):

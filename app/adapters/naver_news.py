@@ -26,7 +26,7 @@ from urllib.parse import urlparse
 from app import config
 from app.adapters._base import PaginatedAdapter
 from app.fetch._client import make_client
-from app.types import DiscoverResult, PortalType
+from app.types import DiscoverResult, SourceType
 
 _log = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ _DEFAULT_DELAY_MS = 800
 
 
 class NaverNewsAdapter(PaginatedAdapter):
-    portal_type: str = PortalType.NAVER_NEWS
+    source_type: str = SourceType.NAVER_NEWS
 
     def __init__(
         self,

@@ -28,7 +28,7 @@ from urllib.parse import urlparse, parse_qs, urlencode
 from xml.etree import ElementTree as ET
 
 from app import config
-from app.types import DiscoverResult, PortalType
+from app.types import DiscoverResult, SourceType
 
 _log = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class UCGoogleNewsAdapter:
     두 모드 모두 undetected-chromedriver 를 사용한다.
     """
 
-    portal_type: str = PortalType.GOOGLE_NEWS
+    source_type: str = SourceType.GOOGLE_NEWS
 
     def __init__(
         self,

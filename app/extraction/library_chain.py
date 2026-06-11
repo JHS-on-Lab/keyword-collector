@@ -30,7 +30,7 @@ class LibraryChain:
         url: str,
         html: str,
         host: str,
-        portal_type: str = "",
+        source_type: str = "",
         keyword: str = "",
     ) -> Article | ExtractionFailure:
         """HTML → Article. 실패 시 ExtractionFailure."""
@@ -68,7 +68,7 @@ class LibraryChain:
         return Article(
             url=norm,
             url_hash=url_hash(norm),
-            portal_type=portal_type,
+            source_type=source_type,
             keyword=keyword,
             title=title.strip(),
             body=body.strip(),

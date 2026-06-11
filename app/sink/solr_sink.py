@@ -13,19 +13,21 @@ SOLR_COMMIT_WITHIN_MS:
   flush 마다 commit=true 를 보내면 다수 컨테이너가 동시에 flush 할 때 하드 커밋이
   직렬화되어 병목이 생긴다. commitWithin 으로 커밋 타이밍을 Solr 에 위임한다.
 
-Solr 스키마에 다음 필드가 필요하다:
-  id, title, body, portal_type, keyword, url,
-  author, published_at, collected_at, extraction_method, body_len
+기존 Solr 스키마 필드명에 맞춰 매핑한다:
+  body          → content
+  published_at  → postdate
+  collected_at  → tstamp
+  (source_type, keyword, author, extraction_method, body_len 은 스키마에 없어 제외)
 """
 
 from __future__ import annotations
 
-import dataclasses
 import json
 
 import httpx
 
 from app import config
+from app.sink.serialize import to_solr_doc
 from app.types import Article
 
 
@@ -41,7 +43,7 @@ class SolrSink:
             raise ValueError("SOLR_URL 이 설정되지 않았습니다. .env 에 SOLR_URL 을 추가하세요.")
 
     def write(self, article: Article) -> None:
-        self._buffer.append(_to_solr_doc(article))
+        self._buffer.append(to_solr_doc(article))
         if len(self._buffer) >= self._batch_size:
             self.flush()
 
@@ -63,13 +65,3 @@ class SolrSink:
 
     def __exit__(self, *_) -> None:
         self.flush()
-
-
-def _to_solr_doc(article: Article) -> dict:
-    d = dataclasses.asdict(article)
-    d["id"] = d.pop("url_hash")
-    if d.get("published_at") is not None:
-        d["published_at"] = d["published_at"].isoformat() + "Z"
-    if d.get("collected_at") is not None:
-        d["collected_at"] = d["collected_at"].isoformat() + "Z"
-    return d

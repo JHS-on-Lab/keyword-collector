@@ -7,10 +7,10 @@
 
 ## 1. 개요
 
-키워드 기반으로 여러 포털·소스를 탐색해, 발견된 콘텐츠의 **URL·제목·본문·메타데이터**를 수집·저장하는 서비스다. 단발 스크립트가 아니라 운영(operation)을 전제로 한다.
+키워드 기반으로 여러 소스를 탐색해, 발견된 콘텐츠의 **URL·제목·본문·메타데이터**를 수집·저장하는 서비스다. 단발 스크립트가 아니라 운영(operation)을 전제로 한다.
 
-- **대상 소스**: 네이버(뉴스·증권 종목토론), 다음 뉴스, 구글 뉴스, 바이두 뉴스 (`portal_type`: `NAVER_NEWS`, `NAVER_STOCK`, `DAUM_NEWS`, `GOOGLE_NEWS`, `BAIDU_NEWS`)
-- **수집 단위**: 키워드. 키워드는 RDB에 저장되며 각 키워드는 `portal_type`을 가진다.  
+- **대상 소스**: 네이버(뉴스·증권 종목토론), 다음 뉴스, 구글 뉴스, 바이두 뉴스 (`source_type`: `NAVER_NEWS`, `NAVER_STOCK`, `DAUM_NEWS`, `GOOGLE_NEWS`, `BAIDU_NEWS`)
+- **수집 단위**: 키워드. 키워드는 RDB에 저장되며 각 키워드는 `source_type`을 가진다.  
   뉴스 포털은 검색어, 증권 종목토론은 종목코드 등이 키워드가 된다.
 - **수집 대상의 핵심**: 본문 전문(full text). 이것이 빠지면 의미가 없다.
 - **확장 방식**: 워커 컨테이너를 늘려 병렬 처리.
@@ -50,7 +50,7 @@ flowchart LR
 
 ### 3.1 2단계 파이프라인
 
-- **발견(Discovery)**: 입력 `(keyword, portal_type)` → 출력은 콘텐츠 URL을 `article_url`에 `status=discovered`로 적재. 소스별 어댑터가 검색·목록 페이지를 스크래핑한다. 본문은 건드리지 않는다.
+- **발견(Discovery)**: 입력 `(keyword, source_type)` → 출력은 콘텐츠 URL을 `article_url`에 `status=discovered`로 적재. 소스별 어댑터가 검색·목록 페이지를 스크래핑한다. 본문은 건드리지 않는다.
 - **추출(Extraction)**: `article_url`에서 작업을 점유 → 콘텐츠 페이지를 가져와 제목·본문·메타를 파싱 → 성공 시 Sink에 기록하고 `status=stored`.
 
 두 단계를 분리하는 이유: ① 발견 실패와 추출 실패가 서로 다른 재시도 단위로 격리된다, ② 발견이 적재한 URL은 일부 추출이 실패해도 손실되지 않는다, ③ 수동 재스크랩이 별도 파이프라인 없이 상태 변경만으로 가능해진다.
@@ -79,7 +79,7 @@ app/
 
 ```python
 class SourceAdapter(Protocol):
-    portal_type: str
+    source_type: str
     def discover(self, keyword: str, cursor: str | None) -> DiscoverResult:
         """검색·목록 결과를 긁어 콘텐츠 URL 목록과 다음 cursor를 반환. 본문은 다루지 않음."""
 
@@ -96,32 +96,32 @@ class Sink(Protocol):
         """현재 FileSink(.jsonl), 나중에 SolrSink. 콘텐츠 타입 무관, 호출부는 동일."""
 ```
 
-### 4.2 실행 모델 — 역할·포털별 독립 실행
+### 4.2 실행 모델 — 역할·소스별 독립 실행
 
 코드는 한 벌이고, **같은 이미지를 실행 인자(또는 환경변수)만 바꿔** 여러 컨테이너로 띄운다. 인자는 두 축이다.
 
 - `--role` : `discovery` | `extraction` — **진입점 선택**(어느 루프를 돌릴지).
-- `--portal` : `naver_news` | `naver_stock` | `daum_news` | `google_news` | `baidu_news` | `all` — **점유 쿼리의 `WHERE portal_type` 필터값**. 기본값 `all`.
+- `--source` : `naver_news` | `naver_stock` | `daum_news` | `google_news` | `baidu_news` | `all` — **점유 쿼리의 `WHERE source_type` 필터값**. 기본값 `all`.
 
 ```bash
-python -m app --role discovery  --portal naver_news   # 네이버 발견자
-python -m app --role discovery  --portal daum_news    # 다음 발견자
-python -m app --role extraction --portal all     # 공용 추출자
+python -m app --role discovery  --source naver_news   # 네이버 발견자
+python -m app --role discovery  --source daum_news    # 다음 발견자
+python -m app --role extraction --source all     # 공용 추출자
 ```
 
 ```yaml
 # 같은 이미지, 인자만 다르게
 services:
-  discover-naver_news: { image: keyword-crawler:latest, command: ["--role","discovery","--portal","naver_news"] }
-  discover-daum_news:  { image: keyword-crawler:latest, command: ["--role","discovery","--portal","daum_news"] }
-  extract:        { image: keyword-crawler:latest, command: ["--role","extraction","--portal","all"], deploy: { replicas: 3 } }
+  discover-naver_news: { image: keyword-crawler:latest, command: ["--role","discovery","--source","naver_news"] }
+  discover-daum_news:  { image: keyword-crawler:latest, command: ["--role","discovery","--source","daum_news"] }
+  extract:        { image: keyword-crawler:latest, command: ["--role","extraction","--source","all"], deploy: { replicas: 3 } }
 ```
 
-핵심 규칙: **인자는 진입점에서만 분기하고 그 아래 로직은 동일**해야 한다. `--role`은 루프 선택, `--portal`은 필터값일 뿐이다. 어댑터 선택은 발견자가 집은 키워드의 `portal_type`으로 결정되므로, 포털별 별도 코드 경로를 만들지 않는다(같은 코드에 필터만 다르게 먹인다). CLI 인자와 환경변수를 모두 받고 CLI가 환경변수를 덮어쓰게 하면 가장 유연하다(K8s에서는 환경변수 주입이 편하다).
+핵심 규칙: **인자는 진입점에서만 분기하고 그 아래 로직은 동일**해야 한다. `--role`은 루프 선택, `--source`은 필터값일 뿐이다. 어댑터 선택은 발견자가 집은 키워드의 `source_type`으로 결정되므로, 소스별 별도 코드 경로를 만들지 않는다(같은 코드에 필터만 다르게 먹인다). CLI 인자와 환경변수를 모두 받고 CLI가 환경변수를 덮어쓰게 하면 가장 유연하다(K8s에서는 환경변수 주입이 편하다).
 
-**권장 형태**: 발견은 포털별로 분리(스크래핑 대상·차단 양상·렌더링 방식이 포털마다 다름), 추출은 공용(추출할 URL의 도메인이 포털과 무관한 경우가 많음). 확장도 병목만 독립적으로 — 네이버 키워드가 많으면 `discover-naver_news`만 replicas를 늘리고(같은 포털 발견자 여러 개는 `SKIP LOCKED`로 키워드를 안 겹치게 나눠 가짐), 추출이 밀리면 `extract`만 늘린다. 소규모일 땐 `--portal all` 발견자 하나로 시작해 트래픽이 커지면 포털별로 무중단 분리.
+**권장 형태**: 발견은 소스별로 분리(스크래핑 대상·차단 양상·렌더링 방식이 소스마다 다름), 추출은 공용(추출할 URL의 도메인이 소스와 무관한 경우가 많음). 확장도 병목만 독립적으로 — 네이버 키워드가 많으면 `discover-naver_news`만 replicas를 늘리고(같은 소스 발견자 여러 개는 `SKIP LOCKED`로 키워드를 안 겹치게 나눠 가짐), 추출이 밀리면 `extract`만 늘린다. 소규모일 땐 `--source all` 발견자 하나로 시작해 트래픽이 커지면 소스별로 무중단 분리.
 
-**전제**: 프로세스는 독립이지만 **MySQL과 `article_url` 큐는 공유**한다(데이터 평면은 하나). 포털별로 물리적으로 다른 DB를 쓰는 분리는 이 설계 범위 밖이다.
+**전제**: 프로세스는 독립이지만 **MySQL과 `article_url` 큐는 공유**한다(데이터 평면은 하나). 소스별로 물리적으로 다른 DB를 쓰는 분리는 이 설계 범위 밖이다.
 
 ---
 
@@ -200,7 +200,7 @@ erDiagram
 - **결과 데이터**: JSON Lines(`.jsonl`), append 친화적이고 나중에 Solr bulk import에 그대로 쓸 수 있다.
 - **파티셔닝**: `data/{YYYY-MM-DD}/{portal_type}.jsonl` — 날짜·소스별로 나눠 관리·재적재를 조각 단위로.
 - **운영 로그**: 수집 진행·하트비트·에러는 콘텐츠 데이터와 섞지 않고 별도 로그로 분리한다. 정보 로그와 **전용 에러 로그**를 또 나눈다 — 상세는 12절.
-- Article 레코드 필드(예): `url`, `url_hash`, `portal_type`, `keyword`, `title`, `body`, `published_at`, `author`, `collected_at`, `extraction_method`, `body_len`.
+- Article 레코드 필드(예): `url`, `url_hash`, `source_type`, `keyword`, `title`, `body`, `published_at`, `author`, `collected_at`, `extraction_method`, `body_len`.
 
 ---
 
@@ -243,7 +243,7 @@ erDiagram
 
 ### 8.1 정밀 경계는 코드가, 거친 경계는 필터가
 
-포털의 기간 필터는 보통 띄엄띄엄한 단위(1일 / 1주 / 1개월)뿐이라 "지난 36시간" 같은 정확한 경계를 표현할 수 없다. 그래서 역할을 나눈다.
+각 소스의 기간 필터는 보통 띄엄띄엄한 단위(1일 / 1주 / 1개월)뿐이라 "지난 36시간" 같은 정확한 경계를 표현할 수 없다. 그래서 역할을 나눈다.
 
 - **기간 필터 = 넉넉한 하한.** 누락이 안 생기게 한 단계 넉넉히 고른다(어제치가 확실히 포함되도록, 필요하면 "1일" 대신 "1주"). 과수집분은 아래 두 장치가 받아낸다.
 - **정밀 경계 = `collection_log` 기반 컷오프.** 매 실행은 "마지막 성공 수집 시각 이후"를 목표로 하고, 약간의 안전 겹침을 둬서 그보다 조금 이전부터 가져온다. 마지막 성공 시각은 `collection_log`에서 `MAX(started_at) WHERE keyword_id=? AND error_msg IS NULL`로 조회한다. 실행이 하루·이틀 밀려도 컷오프 기준으로 따라잡으므로 "1일 필터가 없어서 생기는 누락"이 사라진다.
@@ -251,7 +251,7 @@ erDiagram
 
 ### 8.2 정렬 신뢰 가능 여부로 중단 전략이 갈린다
 
-**증분 중단**("이미 본 URL을 만나면 그 뒤는 다 오래된 것이니 멈춤")은 결과가 **최신순 정렬**일 때만 성립한다. 요즘 포털 검색은 기본이 정확도순이라 신·구 콘텐츠가 섞여 나올 수 있어, 정렬을 신뢰할 수 없으면 증분 중단은 새 콘텐츠를 놓치게 한다. 그래서 두 경로로 나눈다.
+**증분 중단**("이미 본 URL을 만나면 그 뒤는 다 오래된 것이니 멈춤")은 결과가 **최신순 정렬**일 때만 성립한다. 요즘 검색 소스는 기본이 정확도순이라 신·구 콘텐츠가 섞여 나올 수 있어, 정렬을 신뢰할 수 없으면 증분 중단은 새 콘텐츠를 놓치게 한다. 그래서 두 경로로 나눈다.
 
 - **정렬 신뢰 가능(최신순 강제 가능)**: 기간 필터 + 최신순 + **증분 중단**(이미 본 url_hash 또는 컷오프보다 오래된 콘텐츠를 만나면 그 지점에서 페이징/스크롤 종료). 값싸게 끝난다.
 - **정렬 신뢰 불가(정확도순뿐)**: 기간 필터로 **결과 집합을 한정**한 뒤, 정렬을 믿지 않고 그 유한 집합을 끝까지 훑으며 콘텐츠마다 날짜로 판정해 컷오프보다 새것만 담는다. 멈춤 기준은 "헌 콘텐츠를 만나서"가 아니라 "필터로 좁혀진 결과를 다 봤거나 페이지/스크롤 상한 도달". 집합이 작으니 끝까지 봐도 부담이 적다.
@@ -539,10 +539,10 @@ Traceback (most recent call last):
 
 코드 작성 전에 실측·결정해두면 재작업을 줄일 수 있는 항목들.
 
-- **검색 결과 로딩 방식 실측.** 각 포털 검색 결과를 정적 요청으로 받아 콘텐츠 링크가 HTML에 다 들어있는지 확인한다. 무한 스크롤·"더보기"·동적 로딩이면 정적으로는 일부만 잡힌다. 이 실측이 발견 어댑터를 static으로 짤지 headless로 짤지를 가르며, 무한 스크롤이면 내부 요청 직접 호출 가능 여부(8.5)도 함께 확인한다.
-- **발행일시 정규화 규칙.** 포털 검색 결과의 날짜와 콘텐츠 페이지의 날짜가 다를 수 있고, 타임존·상대표기("3시간 전")가 섞인다. 추출 시 발행일시를 어떤 기준으로 정규화할지 미리 정한다(8절 컷오프 판정의 정확도와 직결).
+- **검색 결과 로딩 방식 실측.** 각 소스의 검색 결과를 정적 요청으로 받아 콘텐츠 링크가 HTML에 다 들어있는지 확인한다. 무한 스크롤·"더보기"·동적 로딩이면 정적으로는 일부만 잡힌다. 이 실측이 발견 어댑터를 static으로 짤지 headless로 짤지를 가르며, 무한 스크롤이면 내부 요청 직접 호출 가능 여부(8.5)도 함께 확인한다.
+- **발행일시 정규화 규칙.** 소스 검색 결과의 날짜와 콘텐츠 페이지의 날짜가 다를 수 있고, 타임존·상대표기("3시간 전")가 섞인다. 추출 시 발행일시를 어떤 기준으로 정규화할지 미리 정한다(8절 컷오프 판정의 정확도와 직결).
 - **"본문"의 경계 기준.** 기자명·소속·사진 캡션·관련기사·구독 안내를 본문에 포함할지 제외할지 일관 기준을 정한다(규칙 작성과 라이브러리 보정의 기준이 됨).
-- **테스트 픽스처 확보.** 개발 중 실제 포털을 반복 호출하면 그 단계에서 IP가 차단될 수 있다. 검색 결과·콘텐츠 페이지 HTML을 몇 개 저장해두고 파서를 그 위에서 개발하면 네트워크 없이 빠르게 반복하고 차단도 피한다(4단계 전제).
+- **테스트 픽스처 확보.** 개발 중 실제 소스를 반복 호출하면 그 단계에서 IP가 차단될 수 있다. 검색 결과·콘텐츠 페이지 HTML을 몇 개 저장해두고 파서를 그 위에서 개발하면 네트워크 없이 빠르게 반복하고 차단도 피한다(4단계 전제).
 - **법적·정책 검토.** 포털·언론사 robots.txt와 이용약관, 수집 본문의 보관·활용 범위(사내 분석 vs 외부 노출)에 따라 리스크가 다르다. 기술 결정이 아니라 조직 차원의 합의가 필요한 부분.
 
 ---

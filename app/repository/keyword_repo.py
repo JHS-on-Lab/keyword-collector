@@ -21,7 +21,7 @@ class KeywordRepo:
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
 
-    def claim_next(self, portal: str, worker_id: str) -> dict | None:
+    def claim_next(self, source: str, worker_id: str) -> dict | None:
         """
         due 상태(enabled + next_discover_at <= NOW())인 키워드를 원자적으로 점유한다.
 
@@ -30,22 +30,22 @@ class KeywordRepo:
           2. 각 후보에 대해 UPDATE WHERE 조건으로 선점 시도
           3. rowcount=1 → 내가 가져간 것 / rowcount=0 → 다른 워커가 먼저 가져간 것 → 다음 후보 시도
 
-        반환: {id, keyword, portal_type, interval_seconds} 또는 None(없으면)
+        반환: {id, keyword, source_type, interval_seconds} 또는 None(없으면)
         """
-        portal_filter = "" if portal.upper() == "ALL" else "AND portal_type = :portal"
+        source_filter = "" if source.upper() == "ALL" else "AND source_type = :source"
 
         with self._engine.begin() as conn:
             rows = conn.execute(
                 text(f"""
-                    SELECT id, keyword, portal_type, interval_seconds, retry_pending
+                    SELECT id, keyword, source_type, interval_seconds, retry_pending
                     FROM t_keyword
                     WHERE enabled = true
                       AND (next_discover_at IS NULL OR next_discover_at <= NOW())
-                      {portal_filter}
+                      {source_filter}
                     ORDER BY priority DESC, next_discover_at ASC
                     LIMIT 20
                 """),
-                {"portal": portal.upper()},
+                {"source": source.upper()},
             ).fetchall()
 
             for row in rows:
@@ -84,23 +84,23 @@ class KeywordRepo:
                 {"pending": int(pending), "kid": keyword_id},
             )
 
-    def list_all(self, portal: str = "ALL") -> list[dict]:
+    def list_all(self, source: str = "ALL") -> list[dict]:
         """전체 키워드 목록 조회 (운영 확인용)."""
-        portal_filter = "" if portal.upper() == "ALL" else "WHERE k.portal_type = :portal"
+        source_filter = "" if source.upper() == "ALL" else "WHERE k.source_type = :source"
         with self._engine.connect() as conn:
             rows = conn.execute(
                 text(f"""
-                    SELECT k.id, k.keyword, k.display_name, k.portal_type,
+                    SELECT k.id, k.keyword, k.display_name, k.source_type,
                            k.enabled, k.disabled_reason,
                            k.next_discover_at, k.priority,
                            MAX(CASE WHEN cl.error_msg IS NULL THEN cl.started_at END) AS last_discovered_at
                     FROM t_keyword k
                     LEFT JOIN t_collection_log cl
                            ON cl.keyword_id = k.id AND cl.run_type = 'discovery'
-                    {portal_filter}
+                    {source_filter}
                     GROUP BY k.id
-                    ORDER BY k.portal_type, k.keyword
+                    ORDER BY k.source_type, k.keyword
                 """),
-                {"portal": portal.upper()},
+                {"source": source.upper()},
             ).fetchall()
         return [dict(r._mapping) for r in rows]

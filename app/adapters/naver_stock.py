@@ -17,7 +17,7 @@ from selectolax.parser import HTMLParser
 from app import config
 from app.adapters._base import PaginatedAdapter
 from app.fetch._client import make_client
-from app.types import DiscoverResult, PortalType
+from app.types import DiscoverResult, SourceType
 
 _log = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class NaverStockAdapter(PaginatedAdapter):
     keyword 는 종목코드 (예: "005930").
     """
 
-    portal_type: str = PortalType.NAVER_STOCK
+    source_type: str = SourceType.NAVER_STOCK
 
     def __init__(
         self,

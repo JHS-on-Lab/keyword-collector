@@ -47,7 +47,7 @@ _IDLE_SEC  = 10
 _ERROR_SEC = 5
 
 
-def run_extraction_loop(portal: str, worker_id: str) -> None:
+def run_extraction_loop(source: str, worker_id: str) -> None:
     """추출 워커 메인 루프. __main__.py 에서 호출."""
     logger.info(
         "extraction loop started",
@@ -80,9 +80,9 @@ def run_extraction_loop(portal: str, worker_id: str) -> None:
                 last_heartbeat = now
                 _healthcheck.write()
 
-            portal_filter = None if portal.upper() == "ALL" else portal.upper()
+            source_filter = None if source.upper() == "ALL" else source.upper()
             try:
-                item = url_repo.claim_next(worker_id=worker_id, portal=portal_filter)
+                item = url_repo.claim_next(worker_id=worker_id, source=source_filter)
             except Exception:
                 logger.exception(
                     f"claim_next failed, sleeping {_ERROR_SEC}s",
@@ -92,7 +92,7 @@ def run_extraction_loop(portal: str, worker_id: str) -> None:
                 continue
 
             if item is None:
-                _flush_log(log_repo, portal, worker_id,
+                _flush_log(log_repo, source, worker_id,
                            batch_start_dt, batch_start_mono,
                            processed, urls_success, urls_failed)
                 processed = urls_success = urls_failed = 0
@@ -131,7 +131,7 @@ def _process_one(
     item_id = item["id"]
     url     = item["url"]
     host    = item["host"]
-    portal  = item["portal_type"]
+    source  = item["source_type"]
     keyword = item.get("keyword", "")
     attempt = item["attempt_count"]
 
@@ -198,7 +198,7 @@ def _process_one(
     # Extract
     result = extractor.extract(
         url=fr.url, html=fr.html, host=host,
-        portal_type=portal, keyword=keyword,
+        source_type=source, keyword=keyword,
     )
 
     if isinstance(result, ExtractionFailure):
@@ -264,7 +264,7 @@ def _handle_failure(
 
 def _flush_log(
     log_repo: CollectionLogRepo,
-    portal: str,
+    source: str,
     worker_id: str,
     started_at: datetime,
     started_mono: float,
@@ -277,7 +277,7 @@ def _flush_log(
     duration_ms = int((time.monotonic() - started_mono) * 1000)
     try:
         log_repo.insert_extraction(ExtractionLog(
-            portal_type    = portal,
+            source_type    = source,
             worker_id      = worker_id,
             started_at     = started_at,
             duration_ms    = duration_ms,

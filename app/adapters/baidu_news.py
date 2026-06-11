@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from app.types import DiscoverResult, PortalType
+from app.types import DiscoverResult, SourceType
 
 
 class BaiduNewsAdapter:
-    portal_type: str = PortalType.BAIDU_NEWS
+    source_type: str = SourceType.BAIDU_NEWS
 
     def discover(self, keyword: str, cursor: str | None) -> DiscoverResult:
         raise NotImplementedError

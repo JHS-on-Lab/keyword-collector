@@ -70,7 +70,7 @@ def main() -> None:
         resp = httpx.get(f"{solr_url}/schema/fields", timeout=5)
         resp.raise_for_status()
         fields = [f["name"] for f in resp.json().get("fields", [])]
-        required = {"id", "title", "body", "portal_type", "keyword", "collected_at"}
+        required = {"id", "title", "body", "source_type", "keyword", "collected_at"}
         missing  = required - set(fields)
 
         if missing:

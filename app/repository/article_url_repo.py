@@ -32,11 +32,11 @@ KST = timezone(timedelta(hours=9))
 # 중복 URL 을 조용히 무시하기 위한 관용구다.
 _INSERT_SQL = text("""
     INSERT INTO t_article_url
-        (url, url_hash, host, keyword_id, portal_type, status,
+        (url, url_hash, host, keyword_id, source_type, status,
          attempt_count, is_manual, priority,
          collected_date, created_at, updated_at)
     VALUES
-        (:url, :hash, :host, :kid, :portal, 'discovered',
+        (:url, :hash, :host, :kid, :source, 'discovered',
          0, false, 0,
          :cdate, :created_at, :created_at)
     ON DUPLICATE KEY UPDATE
@@ -56,7 +56,7 @@ class ArticleUrlRepo:
         self,
         raw_urls: list[str],
         keyword_id: int,
-        portal_type: str,
+        source_type: str,
     ) -> tuple[int, int]:
         """
         URL 목록을 discovered 상태로 bulk insert.
@@ -75,7 +75,7 @@ class ArticleUrlRepo:
                 "hash":       url_hash(norm),
                 "host":       urlparse(norm).netloc,
                 "kid":        keyword_id,
-                "portal":     portal_type,
+                "source":     source_type,
                 "cdate":      now.date(),
                 "created_at": now,
             })
@@ -90,7 +90,7 @@ class ArticleUrlRepo:
     # 추출 단계
     # ------------------------------------------------------------------
 
-    def claim_next(self, worker_id: str, portal: str | None = None) -> dict | None:
+    def claim_next(self, worker_id: str, source: str | None = None) -> dict | None:
         """처리할 URL 하나를 원자적으로 점유한다.
 
         낙관적 클레임 패턴 (MariaDB 10.5 호환):
@@ -98,19 +98,19 @@ class ArticleUrlRepo:
           2. 각 후보에 대해 UPDATE WHERE status 조건으로 선점 시도
           3. rowcount=1 → 내가 가져간 것 / rowcount=0 → 다른 워커가 먼저 가져간 것 → 다음 후보 시도
 
-        portal: 지정하면 해당 portal_type 만 처리. None 이면 전체.
+        source: 지정하면 해당 source_type 만 처리. None 이면 전체.
 
         반환:
-          - 처리할 URL 이 있으면 → dict (id, url, host, portal_type, attempt_count, keyword)
+          - 처리할 URL 이 있으면 → dict (id, url, host, source_type, attempt_count, keyword)
           - 없으면 → None
         """
-        portal_filter = "AND a.portal_type = :portal" if portal else ""
-        params: dict = {"portal": portal} if portal else {}
+        source_filter = "AND a.source_type = :source" if source else ""
+        params: dict = {"source": source} if source else {}
 
         with self._engine.begin() as conn:
             rows = conn.execute(
                 text(f"""
-                    SELECT a.id, a.url, a.host, a.portal_type, a.keyword_id,
+                    SELECT a.id, a.url, a.host, a.source_type, a.keyword_id,
                            a.attempt_count, a.status, a.next_retry_at,
                            COALESCE(k.keyword, '') AS keyword
                     FROM t_article_url a
@@ -119,7 +119,7 @@ class ArticleUrlRepo:
                         a.status = 'discovered'
                         OR (a.status = 'failed_transient' AND a.next_retry_at <= NOW())
                     )
-                    {portal_filter}
+                    {source_filter}
                     ORDER BY a.priority DESC, a.id ASC
                     LIMIT 20
                 """),

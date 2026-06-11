@@ -15,11 +15,11 @@ from app.types import Article, DiscoverResult, ExtractionFailure, FetchResult, R
 @runtime_checkable
 class SourceAdapter(Protocol):
     """
-    포털별 발견 어댑터.
+    소스별 발견 어댑터.
     검색 결과 페이지를 스크래핑해 기사 URL 목록과 다음 cursor를 반환한다.
     본문은 건드리지 않는다.
     """
-    portal_type: str
+    source_type: str
 
     def discover(self, keyword: str, cursor: str | None) -> DiscoverResult:
         """
@@ -58,7 +58,7 @@ class Extractor(Protocol):
         url: str,
         html: str,
         host: str,
-        portal_type: str = "",
+        source_type: str = "",
         keyword: str = "",
     ) -> Article | ExtractionFailure:
         """

@@ -20,7 +20,7 @@ from selectolax.parser import HTMLParser
 from app import config
 from app.adapters._base import PaginatedAdapter
 from app.fetch._client import make_client
-from app.types import DiscoverResult, PortalType
+from app.types import DiscoverResult, SourceType
 
 _SEARCH_URL = "https://search.daum.net/search"
 
@@ -30,7 +30,7 @@ _DEFAULT_DELAY_MS = 800
 
 
 class DaumNewsAdapter(PaginatedAdapter):
-    portal_type: str = PortalType.DAUM_NEWS
+    source_type: str = SourceType.DAUM_NEWS
 
     def __init__(
         self,
